@@ -1,0 +1,13 @@
+backend/.venv/
+backend/data/
+backend/**/__pycache__/
+backend/.pytest_cache/
+backend/htmlcov/
+backend/.coverage
+backend/*.egg-info/
+
+frontend/node_modules/
+frontend/dist/
+frontend/src-tauri/target/
+
+*.log

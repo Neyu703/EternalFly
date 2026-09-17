@@ -1,0 +1,33 @@
+[project]
+name = "eternalfly"
+version = "0.1.1"
+description = "Live spiking simulation of the FlyWire fly connectome reading a book"
+requires-python = ">=3.13"
+dependencies = [
+    "torch==2.14.0+cu130",
+    "fastapi==0.141.1",
+    "uvicorn[standard]==0.53.0",
+    "websockets==17.1",
+    "EbookLib==0.20",
+    "pyarrow==25.0.1",
+    "numpy==2.5.3",
+    "scipy==1.18.1",
+    "requests==2.34.2",
+    "tqdm==4.70.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==9.1.1",
+    "pytest-cov==7.1.0",
+]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["eternalfly*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
