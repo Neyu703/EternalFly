@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
+import { loadBookByPath } from "../hooks/useLoadBook";
 import "./LoadBookButton.css";
-
-const BACKEND_HTTP_URL = "http://127.0.0.1:8000";
 
 /** Button that opens a native file picker (.txt/.epub) and hands the chosen path to the
  * backend, which restarts the reading position but keeps the simulated brain's ongoing state. */
@@ -19,20 +18,12 @@ export function LoadBookButton() {
 
     setStatus("loading");
     setErrorMessage("");
-    try {
-      const response = await fetch(`${BACKEND_HTTP_URL}/load-book`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path: selectedPath }),
-      });
-      if (!response.ok) {
-        const body = await response.json().catch(() => null);
-        throw new Error(body?.detail ?? `Fehler ${response.status}`);
-      }
+    const result = await loadBookByPath(selectedPath);
+    if (result.ok) {
       setStatus("idle");
-    } catch (error) {
+    } else {
       setStatus("error");
-      setErrorMessage(error instanceof Error ? error.message : "Unbekannter Fehler");
+      setErrorMessage(result.error);
     }
   }
 

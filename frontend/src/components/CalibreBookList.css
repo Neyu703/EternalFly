@@ -1,0 +1,41 @@
+.calibre-list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 80px;
+  overflow-y: auto;
+}
+
+.calibre-list-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 4px 8px;
+  background: #1c2733;
+  border: 1px solid #2e3d4d;
+  border-radius: 6px;
+  color: #e6edf3;
+  font-family: system-ui, sans-serif;
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.calibre-list-item:hover:not(:disabled) {
+  background: #253242;
+}
+
+.calibre-list-item:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.calibre-list-error {
+  font-size: 11px;
+  color: #ff6b6b;
+}
