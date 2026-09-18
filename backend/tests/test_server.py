@@ -9,6 +9,8 @@ from eternalfly.server import create_app, tick_result_to_json
 SAMPLE_TICK_RESULT = TickResult(
     current_word="hello",
     page_progress=0.5,
+    words_read=5,
+    total_words=10,
     emotions={
         "joy": 0.1,
         "trust": 0.2,
@@ -21,6 +23,7 @@ SAMPLE_TICK_RESULT = TickResult(
     },
     rating_0_10=6.5,
     region_activity={"approach": 0.1, "avoidance": 0.2, "arousal": 0.3},
+    neuropil_activity={"ME_L": 0.4, "MB_CA_R": 0.5},
     wants_new_book=False,
 )
 
@@ -31,6 +34,8 @@ def test_tick_result_to_json_returns_dict_with_exact_keys_and_values():
     assert result == {
         "current_word": "hello",
         "page_progress": 0.5,
+        "words_read": 5,
+        "total_words": 10,
         "emotions": {
             "joy": 0.1,
             "trust": 0.2,
@@ -43,6 +48,7 @@ def test_tick_result_to_json_returns_dict_with_exact_keys_and_values():
         },
         "rating_0_10": 6.5,
         "region_activity": {"approach": 0.1, "avoidance": 0.2, "arousal": 0.3},
+        "neuropil_activity": {"ME_L": 0.4, "MB_CA_R": 0.5},
         "wants_new_book": False,
     }
 
@@ -59,6 +65,8 @@ class FakeIncrementingSession:
         return TickResult(
             current_word=f"word{self._tick_count}",
             page_progress=0.1 * self._tick_count,
+            words_read=self._tick_count,
+            total_words=10,
             emotions={
                 "joy": 0.0,
                 "trust": 0.0,
@@ -71,6 +79,7 @@ class FakeIncrementingSession:
             },
             rating_0_10=float(self._tick_count),
             region_activity={"approach": 0.0, "avoidance": 0.0, "arousal": 0.0},
+            neuropil_activity={},
             wants_new_book=False,
         )
 
@@ -87,6 +96,8 @@ def test_ws_first_message_matches_json_of_first_tick():
         TickResult(
             current_word="word1",
             page_progress=0.1,
+            words_read=1,
+            total_words=10,
             emotions={
                 "joy": 0.0,
                 "trust": 0.0,
@@ -99,6 +110,7 @@ def test_ws_first_message_matches_json_of_first_tick():
             },
             rating_0_10=1.0,
             region_activity={"approach": 0.0, "avoidance": 0.0, "arousal": 0.0},
+            neuropil_activity={},
             wants_new_book=False,
         )
     )

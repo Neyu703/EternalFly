@@ -38,9 +38,9 @@ def load_adjacency_as_torch_sparse(device: str) -> torch.Tensor:
     return torch.sparse_csr_tensor(row_pointers, column_indices, values, size=scipy_matrix.shape, device=device)
 
 
-def load_pool_indices(device: str) -> dict[str, torch.Tensor]:
-    """Load the cached per-pool neuron index arrays as torch tensors."""
-    raw_pools = numpy.load(CACHE_DIR / "pool_indices.npz")
+def load_pool_indices(cache_path: Path, device: str) -> dict[str, torch.Tensor]:
+    """Load a cached per-pool neuron index .npz file as a dict of torch tensors."""
+    raw_pools = numpy.load(cache_path)
     return {name: torch.as_tensor(raw_pools[name], dtype=torch.int64, device=device) for name in raw_pools.files}
 
 
@@ -48,7 +48,8 @@ def build_session() -> ReadingSession:
     """Build a ReadingSession over the real connectome and the built-in test text."""
     device = "cuda" if torch.cuda.is_available() else "cpu"
     adjacency_matrix = load_adjacency_as_torch_sparse(device)
-    pool_indices = load_pool_indices(device)
+    pool_indices = load_pool_indices(CACHE_DIR / "pool_indices.npz", device)
+    neuropil_pool_indices = load_pool_indices(CACHE_DIR / "neuropil_pool_indices.npz", device)
     tokens = tokenize_text(TEST_TEXT)
 
     config = ReadingSessionConfig(
@@ -67,7 +68,9 @@ def build_session() -> ReadingSession:
         min_ticks_before_boredom_check=40,
         device=device,
     )
-    return ReadingSession(adjacency_matrix.shape[0], adjacency_matrix, pool_indices, tokens, config)
+    return ReadingSession(
+        adjacency_matrix.shape[0], adjacency_matrix, pool_indices, tokens, config, neuropil_pool_indices
+    )
 
 
 def main() -> None:

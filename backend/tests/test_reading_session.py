@@ -64,6 +64,25 @@ def test_tick_returns_none_word_and_full_progress_after_book_finished():
     assert after_book_end.page_progress == pytest.approx(1.0)
 
 
+def test_tick_reports_words_read_and_total_words_on_first_tick():
+    session = ReadingSession(NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["hello", "world"], _make_config())
+
+    first_tick = session.tick()
+
+    assert first_tick.total_words == 2
+    assert first_tick.words_read == 1
+
+
+def test_tick_words_read_reaches_and_stays_at_total_words_after_book_finished():
+    session = ReadingSession(NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["hello"], _make_config(ticks_per_word=1))
+
+    session.tick()
+    after_book_end = session.tick()
+
+    assert after_book_end.words_read == 1
+    assert after_book_end.total_words == 1
+
+
 def test_tick_computes_emotions_and_rating_from_zero_pool_activity():
     session = ReadingSession(NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["hello", "world"], _make_config())
 
@@ -100,6 +119,43 @@ def test_tick_does_not_flag_wants_new_book_before_min_ticks_reached():
     tick_result = session.tick()
 
     assert tick_result.wants_new_book is False
+
+
+def test_tick_reports_empty_neuropil_activity_when_no_neuropil_pool_indices_given():
+    session = ReadingSession(NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["hello", "world"], _make_config())
+
+    tick_result = session.tick()
+
+    assert tick_result.neuropil_activity == {}
+
+
+def test_tick_reports_empty_neuropil_activity_when_neuropil_pool_indices_is_empty_dict():
+    session = ReadingSession(
+        NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["hello", "world"], _make_config(), neuropil_pool_indices={}
+    )
+
+    tick_result = session.tick()
+
+    assert tick_result.neuropil_activity == {}
+
+
+def test_tick_reports_per_region_neuropil_activity_when_neuropil_pool_indices_given():
+    neuropil_pool_indices = {
+        "ME_L": torch.tensor([0], dtype=torch.int64),
+        "MB_CA_R": torch.tensor([1], dtype=torch.int64),
+    }
+    session = ReadingSession(
+        NEURON_COUNT,
+        ZERO_ADJACENCY,
+        POOL_INDICES,
+        ["hello", "world"],
+        _make_config(),
+        neuropil_pool_indices=neuropil_pool_indices,
+    )
+
+    tick_result = session.tick()
+
+    assert tick_result.neuropil_activity == {"ME_L": 0.0, "MB_CA_R": 0.0}
 
 
 def test_pool_spike_rate_of_nan_is_never_produced_even_with_empty_pool():
