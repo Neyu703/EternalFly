@@ -16,22 +16,20 @@ const EMOTION_COLORS: Record<string, string> = {
 export function HudPanel({ tick }: { tick: TickData }) {
   return (
     <div className="hud-panel">
-      <h2 className="hud-title">Live-Lesung</h2>
-
-      <div className="hud-section">
-        <span className="hud-label">Aktuelles Wort</span>
+      <div className="hud-section hud-word-section">
+        <span className="hud-label">Liest:</span>
         <span className="hud-word">{tick.currentWord ?? "—"}</span>
       </div>
 
-      <div className="hud-section">
-        <span className="hud-label">Fortschritt</span>
+      <div className="hud-section hud-progress-section">
+        <span className="hud-label">
+          {tick.wordsRead} von {tick.totalWords} Wörtern
+        </span>
         <div className="hud-progress-row">
           <div className="hud-progress-track">
             <div className="hud-progress-fill" style={{ width: `${tick.pageProgress * 100}%` }} />
           </div>
-          <span className="hud-progress-percent">
-            {tick.wordsRead} von {tick.totalWords} Wörtern
-          </span>
+          <span className="hud-progress-percent">{Math.round(tick.pageProgress * 100)}%</span>
         </div>
       </div>
 
