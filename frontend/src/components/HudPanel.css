@@ -130,4 +130,6 @@
   border-radius: 8px;
   font-size: 12px;
   white-space: nowrap;
+  flex-shrink: 0;
+  max-width: 200px;
 }
