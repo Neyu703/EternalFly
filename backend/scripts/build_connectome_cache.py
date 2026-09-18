@@ -17,6 +17,7 @@ from eternalfly.data_prep import (
     load_feather_table,
     load_root_ids,
 )
+from eternalfly.neuropils import ALL_NEUROPIL_NAMES
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 CACHE_DIR = DATA_DIR / "cache"
@@ -34,12 +35,15 @@ POOL_TOP_FRACTION = 0.05
 
 
 def build_pool_indices(
-    post_neuropil_table, root_ids: numpy.ndarray, neuron_id_to_index: dict[int, int]
+    post_neuropil_table,
+    root_ids: numpy.ndarray,
+    neuron_id_to_index: dict[int, int],
+    pool_neuropils: dict[str, list[str]],
 ) -> dict[str, numpy.ndarray]:
     """Select each pool's neuron indices: top POOL_TOP_FRACTION most postsynaptically
     active proofread neurons within that pool's target neuropils."""
     pool_indices = {}
-    for pool_name, target_neuropils in POOL_NEUROPILS.items():
+    for pool_name, target_neuropils in pool_neuropils.items():
         candidate_ids, candidate_counts = aggregate_neuron_activity_by_neuropil(
             post_neuropil_table, target_neuropils, "post_pt_root_id"
         )
@@ -75,10 +79,18 @@ def main() -> None:
     print("saved adjacency:", adjacency_matrix.shape, "nnz:", adjacency_matrix.nnz)
 
     post_neuropil_table = load_feather_table(DATA_DIR / "per_neuron_neuropil_count_post_783.feather")
-    pool_indices = build_pool_indices(post_neuropil_table, root_ids, neuron_id_to_index)
+
+    pool_indices = build_pool_indices(post_neuropil_table, root_ids, neuron_id_to_index, POOL_NEUROPILS)
     numpy.savez(CACHE_DIR / "pool_indices.npz", **pool_indices)
     for pool_name, indices in pool_indices.items():
         print(f"pool {pool_name}: {len(indices)} neurons")
+
+    neuropil_single_name_groups = {name: [name] for name in ALL_NEUROPIL_NAMES}
+    neuropil_pool_indices = build_pool_indices(
+        post_neuropil_table, root_ids, neuron_id_to_index, neuropil_single_name_groups
+    )
+    numpy.savez(CACHE_DIR / "neuropil_pool_indices.npz", **neuropil_pool_indices)
+    print(f"neuropil pools: {len(neuropil_pool_indices)} regions")
 
 
 if __name__ == "__main__":

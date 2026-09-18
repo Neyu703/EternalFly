@@ -35,9 +35,12 @@ class TickResult:
 
     current_word: str | None
     page_progress: float
+    words_read: int
+    total_words: int
     emotions: dict[str, float]
     rating_0_10: float
     region_activity: dict[str, float]
+    neuropil_activity: dict[str, float]
     wants_new_book: bool
 
 
@@ -51,9 +54,15 @@ class ReadingSession:
         pool_indices: dict[str, torch.Tensor],
         tokens: list[str],
         config: ReadingSessionConfig,
+        neuropil_pool_indices: dict[str, torch.Tensor] | None = None,
     ):
         """Create a session over tokens, using pool_indices["sensory_input"/"approach"/
-        "avoidance"/"arousal"] (index tensors into the neuron_count-sized network)."""
+        "avoidance"/"arousal"] (index tensors into the neuron_count-sized network).
+
+        neuropil_pool_indices optionally maps arbitrary region names (e.g. real FlyWire
+        neuropil codes) to index tensors, tracked purely for reporting live per-region
+        activity via TickResult.neuropil_activity; they play no part in the emotion or
+        engagement calculations."""
         self._neuron_count = neuron_count
         self._adjacency_matrix = adjacency_matrix
         self._sensory_pool_indices = pool_indices["sensory_input"].to(config.device)
@@ -71,6 +80,13 @@ class ReadingSession:
         self._avoidance_rate_average = RollingAverage(config.engagement_window_size)
         self._arousal_rate_average = RollingAverage(config.engagement_window_size)
         self._engagement_average = RollingAverage(config.engagement_window_size)
+
+        self._neuropil_pool_indices = {
+            region_name: indices.to(config.device) for region_name, indices in (neuropil_pool_indices or {}).items()
+        }
+        self._neuropil_rate_averages = {
+            region_name: RollingAverage(config.engagement_window_size) for region_name in self._neuropil_pool_indices
+        }
 
     def _current_external_input(self, word_index: int, book_finished: bool) -> torch.Tensor:
         """Return this tick's injected current: the active word's projection, held for its
@@ -104,6 +120,14 @@ class ReadingSession:
         region_activity = {"approach": approach_rate, "avoidance": avoidance_rate, "arousal": arousal_rate}
         return emotions, rating, region_activity
 
+    def _update_neuropil_activity(self, spikes: torch.Tensor) -> dict[str, float]:
+        """Roll each configured neuropil region's spike rate forward and return the
+        smoothed activity per region name. Empty when no neuropil_pool_indices were given."""
+        return {
+            region_name: self._neuropil_rate_averages[region_name].update(compute_pool_spike_rate(spikes, indices))
+            for region_name, indices in self._neuropil_pool_indices.items()
+        }
+
     def _update_engagement(self, rating: float, arousal_rate: float) -> bool:
         """Track a smoothed engagement score and report whether the fly wants a new book."""
         engagement_score = (rating / 10.0 + arousal_rate) / 2.0
@@ -124,16 +148,21 @@ class ReadingSession:
         self._previous_spikes = spikes
 
         emotions, rating, region_activity = self._update_emotions(spikes)
+        neuropil_activity = self._update_neuropil_activity(spikes)
         wants_new_book = self._update_engagement(rating, region_activity["arousal"])
 
         page_progress = 1.0 if book_finished else (word_index + 1) / len(self._tokens)
+        words_read = len(self._tokens) if book_finished else word_index + 1
         self._tick_number += 1
 
         return TickResult(
             current_word=current_word,
             page_progress=page_progress,
+            words_read=words_read,
+            total_words=len(self._tokens),
             emotions=emotions,
             rating_0_10=rating,
             region_activity=region_activity,
+            neuropil_activity=neuropil_activity,
             wants_new_book=wants_new_book,
         )
