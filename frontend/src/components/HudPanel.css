@@ -10,14 +10,6 @@
   font-family: system-ui, sans-serif;
 }
 
-.hud-title {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-  color: #7fd4ff;
-  white-space: nowrap;
-}
-
 .hud-section {
   flex-shrink: 0;
 }
@@ -31,10 +23,24 @@
   margin-bottom: 4px;
 }
 
+.hud-word-section {
+  width: 140px;
+}
+
+.hud-progress-section .hud-label {
+  width: 130px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .hud-word {
+  display: block;
   font-size: 20px;
   font-weight: 600;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .hud-progress-row {
