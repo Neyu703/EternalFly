@@ -17,6 +17,7 @@ from eternalfly.text_encoder import tokenize_text
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 CACHE_DIR = DATA_DIR / "cache"
+CALIBRE_LIBRARY_PATH = Path.home() / "Calibre-Bibliothek"
 
 TEST_TEXT = """
 The dragon roared and the castle shook with fear. Suddenly, the brave knight
@@ -77,7 +78,7 @@ def main() -> None:
     """Start the uvicorn server on the given port (default 8000)."""
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
     session = build_session()
-    app = create_app(session, tick_interval_seconds=0.05)
+    app = create_app(session, tick_interval_seconds=0.05, calibre_library_path=CALIBRE_LIBRARY_PATH)
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="info")
 
 

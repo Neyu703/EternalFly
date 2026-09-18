@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from starlette.websockets import WebSocketDisconnect
 
+from eternalfly.calibre_library import list_books
 from eternalfly.text_encoder import load_and_tokenize_file
 
 
@@ -23,14 +24,18 @@ class LoadBookRequest(BaseModel):
     path: str
 
 
-def create_app(session, tick_interval_seconds: float = 0.05) -> FastAPI:
+def create_app(
+    session,
+    tick_interval_seconds: float = 0.05,
+    calibre_library_path: pathlib.Path | None = None,
+) -> FastAPI:
     """Build a FastAPI app that streams `session.tick()` results over `/ws` as JSON,
     one message per tick, until the client disconnects."""
     app = FastAPI()
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["http://localhost:5173", "tauri://localhost", "http://tauri.localhost"],
-        allow_methods=["POST"],
+        allow_methods=["GET", "POST"],
         allow_headers=["Content-Type"],
     )
 
@@ -58,5 +63,28 @@ def create_app(session, tick_interval_seconds: float = 0.05) -> FastAPI:
         except ValueError as invalid_book_error:
             raise HTTPException(status_code=400, detail=str(invalid_book_error)) from invalid_book_error
         return {"status": "ok", "total_words": len(tokens)}
+
+    @app.get("/calibre-books")
+    async def get_calibre_books() -> dict:
+        """List books available in the configured Calibre library, resolved to
+        absolute file paths the frontend can pass straight to /load-book. Returns
+        an empty list if no library path was configured."""
+        if calibre_library_path is None:
+            return {"books": []}
+        try:
+            books = list_books(calibre_library_path)
+        except FileNotFoundError as missing_library_error:
+            raise HTTPException(status_code=404, detail=str(missing_library_error)) from missing_library_error
+        return {
+            "books": [
+                {
+                    "book_id": book.book_id,
+                    "title": book.title,
+                    "author": book.author,
+                    "file_path": str(book.file_path),
+                }
+                for book in books
+            ]
+        }
 
     return app
