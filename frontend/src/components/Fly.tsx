@@ -1,40 +1,32 @@
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import * as THREE from "three";
+import { useGLTF } from "@react-three/drei";
+import type * as THREE from "three";
 
-/** Procedurally built low-poly fly: capsule body segments, flat wings, idle wing-flutter animation. */
+/**
+ * "shy fly" by Maf'j Alvarez (CC-BY 3.0, see public/models/CREDITS.md), with an idle
+ * wing-flutter animation applied to its wing sub-meshes.
+ */
 export function Fly() {
-  const leftWingRef = useRef<THREE.Mesh>(null);
-  const rightWingRef = useRef<THREE.Mesh>(null);
+  const { scene } = useGLTF("/models/shy-fly.glb");
+  const wingObjects = useRef<THREE.Object3D[]>([]);
+
+  useEffect(() => {
+    const foundWings: THREE.Object3D[] = [];
+    scene.traverse((child) => {
+      if (child.name.includes("BezierCurve")) foundWings.push(child);
+    });
+    wingObjects.current = foundWings;
+  }, [scene]);
 
   useFrame(({ clock }) => {
-    const flutterAngle = Math.sin(clock.elapsedTime * 25) * 0.6;
-    if (leftWingRef.current) leftWingRef.current.rotation.z = flutterAngle;
-    if (rightWingRef.current) rightWingRef.current.rotation.z = -flutterAngle;
+    const flutterAngle = Math.sin(clock.elapsedTime * 25) * 0.5;
+    wingObjects.current.forEach((wing, index) => {
+      wing.rotation.z = index % 2 === 0 ? flutterAngle : -flutterAngle;
+    });
   });
 
-  return (
-    <group>
-      <mesh position={[0, 0, 0]}>
-        <capsuleGeometry args={[0.3, 0.4, 8, 16]} />
-        <meshStandardMaterial color="#4a4a5a" />
-      </mesh>
-      <mesh position={[0, -0.6, 0]}>
-        <capsuleGeometry args={[0.25, 0.5, 8, 16]} />
-        <meshStandardMaterial color="#33333f" />
-      </mesh>
-      <mesh position={[0, 0.5, 0]}>
-        <sphereGeometry args={[0.22, 16, 16]} />
-        <meshStandardMaterial color="#26262f" />
-      </mesh>
-      <mesh ref={leftWingRef} position={[-0.3, 0.1, 0]}>
-        <planeGeometry args={[0.6, 0.25]} />
-        <meshStandardMaterial color="#cbd8e6" transparent opacity={0.4} side={THREE.DoubleSide} />
-      </mesh>
-      <mesh ref={rightWingRef} position={[0.3, 0.1, 0]}>
-        <planeGeometry args={[0.6, 0.25]} />
-        <meshStandardMaterial color="#cbd8e6" transparent opacity={0.4} side={THREE.DoubleSide} />
-      </mesh>
-    </group>
-  );
+  return <primitive object={scene} />;
 }
+
+useGLTF.preload("/models/shy-fly.glb");

@@ -1,6 +1,6 @@
 [package]
 name = "eternalfly"
-version = "0.1.8"
+version = "0.1.9"
 description = "Live spiking simulation of the FlyWire fly connectome reading a book"
 authors = ["EternalFly"]
 license = ""

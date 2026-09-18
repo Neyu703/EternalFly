@@ -1,15 +1,9 @@
-/** Simple two-page book prop the fly reads. Page-flip animation lands here in a later milestone. */
+import { useGLTF } from "@react-three/drei";
+
+/** "Open Book" by Quaternius (CC0, see public/models/CREDITS.md). Page-flip animation lands in a later milestone. */
 export function Book() {
-  return (
-    <group position={[0, -1.2, 0.8]} rotation={[-0.3, 0, 0]}>
-      <mesh position={[-0.5, 0, 0]}>
-        <boxGeometry args={[0.9, 0.05, 1.2]} />
-        <meshStandardMaterial color="#f5f0e6" />
-      </mesh>
-      <mesh position={[0.5, 0, 0]}>
-        <boxGeometry args={[0.9, 0.05, 1.2]} />
-        <meshStandardMaterial color="#f5f0e6" />
-      </mesh>
-    </group>
-  );
+  const { scene } = useGLTF("/models/open-book.glb");
+  return <primitive object={scene} />;
 }
+
+useGLTF.preload("/models/open-book.glb");
