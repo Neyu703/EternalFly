@@ -1,4 +1,5 @@
 import { EMOTION_NAMES, type TickData } from "../types";
+import { LoadBookButton } from "./LoadBookButton";
 import "./HudPanel.css";
 
 const EMOTION_COLORS: Record<string, string> = {
@@ -45,6 +46,8 @@ export function HudPanel({ tick }: { tick: TickData }) {
       </div>
 
       {tick.wantsNewBook && <div className="hud-bored-banner">Boah, langweilig — anderes Buch?</div>}
+
+      <LoadBookButton />
     </div>
   );
 }
