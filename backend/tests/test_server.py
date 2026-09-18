@@ -1,4 +1,5 @@
 import asyncio
+import sqlite3
 
 import ebooklib.epub
 from fastapi.testclient import TestClient
@@ -248,3 +249,65 @@ def test_load_book_endpoint_returns_400_when_file_tokenizes_to_an_empty_book(tmp
 
     assert response.status_code == 400
     assert fake_session.received_tokens is None
+
+
+def _create_minimal_calibre_library(tmp_path):
+    """Build a minimal real Calibre-shaped metadata.db with a single EPUB book."""
+    library_path = tmp_path / "calibre_library"
+    library_path.mkdir()
+    connection = sqlite3.connect(library_path / "metadata.db")
+    connection.executescript(
+        """
+        CREATE TABLE books (id INTEGER PRIMARY KEY, title TEXT, path TEXT);
+        CREATE TABLE authors (id INTEGER PRIMARY KEY, name TEXT);
+        CREATE TABLE books_authors_link (book INTEGER, author INTEGER);
+        CREATE TABLE data (id INTEGER PRIMARY KEY, book INTEGER, format TEXT, name TEXT);
+        """
+    )
+    connection.execute("INSERT INTO books VALUES (1, 'Dune', 'Frank Herbert/Dune (1)')")
+    connection.execute("INSERT INTO authors VALUES (1, 'Frank Herbert')")
+    connection.execute("INSERT INTO books_authors_link VALUES (1, 1)")
+    connection.execute("INSERT INTO data VALUES (1, 1, 'EPUB', 'dune')")
+    connection.commit()
+    connection.close()
+    return library_path
+
+
+def test_calibre_books_endpoint_returns_empty_list_when_no_library_configured():
+    fake_session = FakeSessionTrackingLoadNewText()
+    client = TestClient(create_app(fake_session))
+
+    response = client.get("/calibre-books")
+
+    assert response.status_code == 200
+    assert response.json() == {"books": []}
+
+
+def test_calibre_books_endpoint_returns_books_from_configured_library(tmp_path):
+    library_path = _create_minimal_calibre_library(tmp_path)
+    fake_session = FakeSessionTrackingLoadNewText()
+    client = TestClient(create_app(fake_session, calibre_library_path=library_path))
+
+    response = client.get("/calibre-books")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "books": [
+            {
+                "book_id": 1,
+                "title": "Dune",
+                "author": "Frank Herbert",
+                "file_path": str(library_path / "Frank Herbert/Dune (1)" / "dune.epub"),
+            }
+        ]
+    }
+
+
+def test_calibre_books_endpoint_returns_404_when_configured_library_path_has_no_metadata_db(tmp_path):
+    missing_library_path = tmp_path / "no_such_library"
+    fake_session = FakeSessionTrackingLoadNewText()
+    client = TestClient(create_app(fake_session, calibre_library_path=missing_library_path))
+
+    response = client.get("/calibre-books")
+
+    assert response.status_code == 404
