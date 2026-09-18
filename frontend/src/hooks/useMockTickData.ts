@@ -22,7 +22,7 @@ export function useMockTickData(): TickData {
   const [neuropilNames, setNeuropilNames] = useState<string[]>([]);
 
   useEffect(() => {
-    const intervalId = setInterval(() => setWordIndex((index) => index + 1), 2000);
+    const intervalId = setInterval(() => setWordIndex((index) => index + 1), 350);
     return () => clearInterval(intervalId);
   }, []);
 
