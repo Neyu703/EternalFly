@@ -10,10 +10,16 @@ body,
 
 .dashboard {
   display: grid;
-  grid-template-columns: 1fr 1fr 320px;
+  grid-template-rows: 1fr minmax(180px, 240px);
   width: 100vw;
   height: 100vh;
   background: #0b0b0f;
+}
+
+.dashboard-top {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  min-height: 0;
 }
 
 .dashboard-panel {
@@ -22,9 +28,13 @@ body,
   overflow: hidden;
 }
 
+.dashboard-panel--fly {
+  border-right: 1px solid #1c2733;
+}
+
 .dashboard-panel--fly,
 .dashboard-panel--brain {
-  border-right: 1px solid #1c2733;
+  border-bottom: 1px solid #1c2733;
 }
 
 .dashboard-panel--hud {
