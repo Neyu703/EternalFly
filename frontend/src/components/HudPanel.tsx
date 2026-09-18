@@ -18,12 +18,12 @@ export function HudPanel({ tick }: { tick: TickData }) {
     <div className="hud-panel">
       <h2 className="hud-title">Live-Lesung</h2>
 
-      <div className="hud-row">
+      <div className="hud-section">
         <span className="hud-label">Aktuelles Wort</span>
         <span className="hud-word">{tick.currentWord ?? "—"}</span>
       </div>
 
-      <div className="hud-row">
+      <div className="hud-section">
         <span className="hud-label">Fortschritt</span>
         <div className="hud-progress-track">
           <div className="hud-progress-fill" style={{ width: `${tick.pageProgress * 100}%` }} />
