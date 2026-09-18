@@ -1,0 +1,101 @@
+.hud-panel {
+  height: 100%;
+  box-sizing: border-box;
+  padding: 20px;
+  overflow-y: auto;
+  color: #e6edf3;
+  font-family: system-ui, sans-serif;
+}
+
+.hud-title {
+  margin: 0 0 16px;
+  font-size: 18px;
+  font-weight: 600;
+  color: #7fd4ff;
+}
+
+.hud-row {
+  margin-bottom: 14px;
+}
+
+.hud-label {
+  display: block;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #8b98a5;
+  margin-bottom: 4px;
+}
+
+.hud-word {
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.hud-progress-track,
+.hud-emotion-track {
+  background: #1c2733;
+  border-radius: 6px;
+  overflow: hidden;
+  height: 10px;
+}
+
+.hud-progress-fill {
+  height: 100%;
+  background: #7fd4ff;
+  transition: width 0.3s ease;
+}
+
+.hud-rating {
+  margin: 20px 0;
+  padding: 12px;
+  background: #131b24;
+  border-radius: 8px;
+  text-align: center;
+}
+
+.hud-rating-value {
+  font-size: 36px;
+  font-weight: 700;
+  color: #ffd166;
+}
+
+.hud-rating-suffix {
+  display: block;
+  font-size: 12px;
+  color: #8b98a5;
+}
+
+.hud-emotions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hud-emotion-row {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  align-items: center;
+  gap: 8px;
+}
+
+.hud-emotion-label {
+  font-size: 12px;
+  text-transform: capitalize;
+  color: #c3ccd4;
+}
+
+.hud-emotion-fill {
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+.hud-bored-banner {
+  margin-top: 20px;
+  padding: 10px;
+  background: #3a2a1a;
+  border: 1px solid #a86a2a;
+  border-radius: 8px;
+  font-size: 13px;
+  text-align: center;
+}
