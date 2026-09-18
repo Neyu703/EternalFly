@@ -47,3 +47,16 @@ def extract_epub_text(epub_path: pathlib.Path) -> str:
 def read_text_file(text_path: pathlib.Path) -> str:
     """Read and return the UTF-8 encoded contents of a plain text file."""
     return text_path.read_text(encoding="utf-8")
+
+
+def load_and_tokenize_file(file_path: pathlib.Path) -> list[str]:
+    """Read file_path (.epub or .txt, case-insensitive) and return its tokenized text.
+    Raises ValueError for any other suffix, and FileNotFoundError if the file is missing."""
+    suffix = file_path.suffix.lower()
+    if suffix == ".epub":
+        raw_text = extract_epub_text(file_path)
+    elif suffix == ".txt":
+        raw_text = read_text_file(file_path)
+    else:
+        raise ValueError(f"Unsupported file type: {file_path.suffix}")
+    return tokenize_text(raw_text)

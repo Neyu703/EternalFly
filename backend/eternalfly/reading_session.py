@@ -135,6 +135,15 @@ class ReadingSession:
         has_enough_history = self._tick_number >= self._config.min_ticks_before_boredom_check
         return has_enough_history and smoothed_engagement < self._config.engagement_threshold
 
+    def load_new_text(self, tokens: list[str]) -> None:
+        """Swap in a new book's tokens and restart word progress from tick 0, while
+        deliberately keeping the simulated brain's ongoing LIF/engagement state intact
+        across books — only the text feed changes."""
+        if not tokens:
+            raise ValueError("tokens must not be empty")
+        self._tokens = tokens
+        self._tick_number = 0
+
     def tick(self) -> TickResult:
         """Advance the session by one simulation tick and return its observable result."""
         word_index = word_index_for_tick(self._tick_number, self._config.ticks_per_word)
