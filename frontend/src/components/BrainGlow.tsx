@@ -7,7 +7,10 @@ import * as THREE from "three";
 export type NeuropilActivity = Record<string, number>;
 
 const IDLE_BRIGHTNESS = 0.35;
-const ACTIVE_BRIGHTNESS = 0.9;
+// Real per-region spike rates from the simulation are small fractions (roughly 0-0.15),
+// much smaller than the mock feed's synthetic 0..1 range, so this needs a much larger
+// multiplier to produce a visible brightness swing with real data.
+const ACTIVE_BRIGHTNESS = 8.0;
 
 /**
  * A translucent 3D brain outline (real FlyWire FAFB template mesh) with the real, anatomically
