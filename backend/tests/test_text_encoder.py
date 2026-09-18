@@ -4,6 +4,7 @@ import pytest
 
 from eternalfly.text_encoder import (
     extract_epub_text,
+    load_and_tokenize_file,
     project_token_to_currents,
     read_text_file,
     tokenize_text,
@@ -103,3 +104,58 @@ def test_read_text_file_reads_utf8_file_contents(tmp_path):
     text_path.write_text("The dragon soared over München.", encoding="utf-8")
 
     assert read_text_file(text_path) == "The dragon soared over München."
+
+
+def test_load_and_tokenize_file_tokenizes_a_txt_file(tmp_path):
+    text_path = tmp_path / "story.txt"
+    text_path.write_text("The dragon flew.", encoding="utf-8")
+
+    assert load_and_tokenize_file(text_path) == ["the", "dragon", "flew"]
+
+
+def test_load_and_tokenize_file_dispatches_on_uppercase_txt_suffix(tmp_path):
+    text_path = tmp_path / "story.TXT"
+    text_path.write_text("Sunlit meadows", encoding="utf-8")
+
+    assert load_and_tokenize_file(text_path) == ["sunlit", "meadows"]
+
+
+def test_load_and_tokenize_file_tokenizes_an_epub_file(tmp_path):
+    epub_path = tmp_path / "tiny.epub"
+    _build_tiny_epub(epub_path)
+
+    tokens = load_and_tokenize_file(epub_path)
+
+    assert "dragon" in tokens
+    assert "meadows" in tokens
+
+
+def test_load_and_tokenize_file_dispatches_on_uppercase_epub_suffix(tmp_path):
+    epub_path = tmp_path / "tiny.EPUB"
+    _build_tiny_epub(epub_path)
+
+    tokens = load_and_tokenize_file(epub_path)
+
+    assert "dragon" in tokens
+
+
+def test_load_and_tokenize_file_raises_value_error_on_unsupported_suffix(tmp_path):
+    unsupported_path = tmp_path / "story.pdf"
+    unsupported_path.write_text("irrelevant", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Unsupported file type: .pdf"):
+        load_and_tokenize_file(unsupported_path)
+
+
+def test_load_and_tokenize_file_raises_file_not_found_for_missing_txt_file(tmp_path):
+    missing_path = tmp_path / "missing.txt"
+
+    with pytest.raises(FileNotFoundError):
+        load_and_tokenize_file(missing_path)
+
+
+def test_load_and_tokenize_file_raises_file_not_found_for_missing_epub_file(tmp_path):
+    missing_path = tmp_path / "missing.epub"
+
+    with pytest.raises(FileNotFoundError):
+        load_and_tokenize_file(missing_path)

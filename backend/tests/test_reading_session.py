@@ -158,6 +158,44 @@ def test_tick_reports_per_region_neuropil_activity_when_neuropil_pool_indices_gi
     assert tick_result.neuropil_activity == {"ME_L": 0.0, "MB_CA_R": 0.0}
 
 
+def test_load_new_text_replaces_tokens_and_resets_tick_number_but_keeps_current_word_from_new_book():
+    session = ReadingSession(NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["hello", "world"], _make_config(ticks_per_word=1))
+    session.tick()
+    session.tick()
+
+    session.load_new_text(["new", "book"])
+    tick_result = session.tick()
+
+    assert tick_result.current_word == "new"
+    assert tick_result.total_words == 2
+    assert tick_result.words_read == 1
+
+
+def test_load_new_text_preserves_lif_state_and_engagement_tracking_across_books():
+    session = ReadingSession(
+        NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["hello", "world", "again"],
+        _make_config(ticks_per_word=1, min_ticks_before_boredom_check=3),
+    )
+    for _ in range(4):
+        session.tick()
+    state_before_reload = session._state
+    previous_spikes_before_reload = session._previous_spikes
+    engagement_average_before_reload = session._engagement_average
+
+    session.load_new_text(["fresh", "start"])
+
+    assert session._state is state_before_reload
+    assert session._previous_spikes is previous_spikes_before_reload
+    assert session._engagement_average is engagement_average_before_reload
+
+
+def test_load_new_text_raises_value_error_on_empty_token_list():
+    session = ReadingSession(NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["hello", "world"], _make_config())
+
+    with pytest.raises(ValueError, match="tokens must not be empty"):
+        session.load_new_text([])
+
+
 def test_pool_spike_rate_of_nan_is_never_produced_even_with_empty_pool():
     empty_pool_indices = dict(POOL_INDICES)
     empty_pool_indices["approach"] = torch.tensor([], dtype=torch.int64)

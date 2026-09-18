@@ -1,5 +1,6 @@
 import asyncio
 
+import ebooklib.epub
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
@@ -159,3 +160,91 @@ def test_ws_route_endpoint_returns_cleanly_when_send_raises_websocket_disconnect
     websocket_route = next(route for route in app.routes if getattr(route, "path", None) == "/ws")
 
     asyncio.run(websocket_route.endpoint(DisconnectingWebSocket()))
+
+
+class FakeSessionTrackingLoadNewText:
+    """Fake session recording load_new_text calls, mirroring ReadingSession's own
+    empty-tokens guard so /load-book's error handling can be exercised without a real
+    ReadingSession."""
+
+    def __init__(self):
+        self.received_tokens = None
+
+    def load_new_text(self, tokens: list[str]) -> None:
+        """Record tokens, raising like the real ReadingSession.load_new_text would."""
+        if not tokens:
+            raise ValueError("tokens must not be empty")
+        self.received_tokens = tokens
+
+
+def test_load_book_endpoint_returns_ok_and_total_words_for_valid_txt_file(tmp_path):
+    text_path = tmp_path / "story.txt"
+    text_path.write_text("The dragon flew.", encoding="utf-8")
+    fake_session = FakeSessionTrackingLoadNewText()
+    client = TestClient(create_app(fake_session))
+
+    response = client.post("/load-book", json={"path": str(text_path)})
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "total_words": 3}
+    assert fake_session.received_tokens == ["the", "dragon", "flew"]
+
+
+def test_load_book_endpoint_returns_ok_for_valid_epub_file(tmp_path):
+    epub_path = tmp_path / "tiny.epub"
+    book = ebooklib.epub.EpubBook()
+    book.set_identifier("test-id-123")
+    book.set_title("Tiny Test Book")
+    book.set_language("en")
+    chapter = ebooklib.epub.EpubHtml(title="Chapter One", file_name="chapter_one.xhtml", lang="en")
+    chapter.content = "<html><body><p>Sunlit meadows.</p></body></html>"
+    book.add_item(chapter)
+    book.toc = (chapter,)
+    book.add_item(ebooklib.epub.EpubNcx())
+    book.add_item(ebooklib.epub.EpubNav())
+    book.spine = ["nav", chapter]
+    ebooklib.epub.write_epub(str(epub_path), book)
+    fake_session = FakeSessionTrackingLoadNewText()
+    client = TestClient(create_app(fake_session))
+
+    response = client.post("/load-book", json={"path": str(epub_path)})
+
+    assert response.status_code == 200
+    assert "sunlit" in fake_session.received_tokens
+    assert "meadows" in fake_session.received_tokens
+    assert response.json() == {"status": "ok", "total_words": len(fake_session.received_tokens)}
+
+
+def test_load_book_endpoint_returns_404_for_missing_file(tmp_path):
+    missing_path = tmp_path / "missing.txt"
+    fake_session = FakeSessionTrackingLoadNewText()
+    client = TestClient(create_app(fake_session))
+
+    response = client.post("/load-book", json={"path": str(missing_path)})
+
+    assert response.status_code == 404
+    assert fake_session.received_tokens is None
+
+
+def test_load_book_endpoint_returns_400_for_unsupported_file_extension(tmp_path):
+    unsupported_path = tmp_path / "story.pdf"
+    unsupported_path.write_text("irrelevant", encoding="utf-8")
+    fake_session = FakeSessionTrackingLoadNewText()
+    client = TestClient(create_app(fake_session))
+
+    response = client.post("/load-book", json={"path": str(unsupported_path)})
+
+    assert response.status_code == 400
+    assert fake_session.received_tokens is None
+
+
+def test_load_book_endpoint_returns_400_when_file_tokenizes_to_an_empty_book(tmp_path):
+    empty_text_path = tmp_path / "empty.txt"
+    empty_text_path.write_text("--- ... !!!", encoding="utf-8")
+    fake_session = FakeSessionTrackingLoadNewText()
+    client = TestClient(create_app(fake_session))
+
+    response = client.post("/load-book", json={"path": str(empty_text_path)})
+
+    assert response.status_code == 400
+    assert fake_session.received_tokens is None
