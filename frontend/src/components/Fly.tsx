@@ -20,7 +20,9 @@ export function Fly() {
   }, [scene]);
 
   useFrame(({ clock }) => {
-    const flutterAngle = Math.sin(clock.elapsedTime * 25) * 0.5;
+    // Each wing's geometry is baked far from this node's local origin (obj2gltf export
+    // has no per-node offset), so even a small rotation here sweeps a large visible arc.
+    const flutterAngle = Math.sin(clock.elapsedTime * 25) * 0.08;
     wingObjects.current.forEach((wing, index) => {
       wing.rotation.z = index % 2 === 0 ? flutterAngle : -flutterAngle;
     });
