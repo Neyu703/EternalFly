@@ -48,6 +48,8 @@ export function useMockTickData(): TickData {
   return {
     currentWord,
     pageProgress: (cyclePosition + 1) / DEMO_WORDS.length,
+    wordsRead: cyclePosition + 1,
+    totalWords: DEMO_WORDS.length,
     emotions,
     rating0To10: 5 + 3 * Math.sin(wordIndex * 0.4),
     regionActivity: { approach: 0.4, avoidance: 0.2, arousal: 0.5 },

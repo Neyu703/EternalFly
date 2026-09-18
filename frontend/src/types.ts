@@ -2,6 +2,8 @@
 export type TickData = {
   currentWord: string | null;
   pageProgress: number;
+  wordsRead: number;
+  totalWords: number;
   emotions: Record<string, number>;
   rating0To10: number;
   regionActivity: Record<string, number>;

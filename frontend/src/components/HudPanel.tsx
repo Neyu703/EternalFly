@@ -24,12 +24,14 @@ export function HudPanel({ tick }: { tick: TickData }) {
       </div>
 
       <div className="hud-section">
-        <span className="hud-label">Fortschritt im Buch (gelesene Wörter)</span>
+        <span className="hud-label">Fortschritt</span>
         <div className="hud-progress-row">
           <div className="hud-progress-track">
             <div className="hud-progress-fill" style={{ width: `${tick.pageProgress * 100}%` }} />
           </div>
-          <span className="hud-progress-percent">{Math.round(tick.pageProgress * 100)}%</span>
+          <span className="hud-progress-percent">
+            {tick.wordsRead} von {tick.totalWords} Wörtern
+          </span>
         </div>
       </div>
 
