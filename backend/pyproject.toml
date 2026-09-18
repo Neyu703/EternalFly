@@ -1,6 +1,6 @@
 [project]
 name = "eternalfly"
-version = "0.1.5"
+version = "0.1.6"
 description = "Live spiking simulation of the FlyWire fly connectome reading a book"
 requires-python = ">=3.13"
 dependencies = [
@@ -21,6 +21,7 @@ dependencies = [
 dev = [
     "pytest==9.1.1",
     "pytest-cov==7.1.0",
+    "httpx==0.28.1",
 ]
 
 [build-system]
