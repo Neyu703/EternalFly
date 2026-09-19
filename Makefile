@@ -4,7 +4,7 @@ dev:
 	$(MAKE) -j2 backend frontend
 
 backend:
-	cd backend && .venv/Scripts/python.exe scripts/run_server.py
+	cd backend && .venv/Scripts/python.exe -m scripts.run_server
 
 frontend:
 	cd frontend && npm run tauri dev
