@@ -47,11 +47,6 @@ export function HudPanel({
         </div>
       </div>
 
-      <div className="hud-rating">
-        <span className="hud-rating-value">{tick.rating0To10.toFixed(1)}</span>
-        <span className="hud-rating-suffix">/ 10 Dopamin-Level</span>
-      </div>
-
       <div className="hud-emotions">
         {EMOTION_NAMES.map((emotionName) => (
           <EmotionBar key={emotionName} name={emotionName} value={tick.emotions[emotionName] ?? 0} />
