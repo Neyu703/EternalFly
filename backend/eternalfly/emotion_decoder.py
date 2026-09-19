@@ -17,7 +17,12 @@ DISTANCE_NORMALIZER = 2.5
 
 
 class RollingAverage:
-    """A fixed-window moving average over a stream of values."""
+    """A fixed-window moving average over a stream of values.
+
+    Maintains a running sum instead of resumming the whole window on every update, so
+    update() stays O(1) even for very large window sizes (needed for a reading session
+    to track sentiment over many words — one instance of this runs per tick for every
+    tracked brain region, so an O(window_size) update would scale badly)."""
 
     def __init__(self, window_size: int):
         """Create a rolling average over the most recent window_size values.
@@ -25,12 +30,16 @@ class RollingAverage:
         if not isinstance(window_size, int) or window_size <= 0:
             raise ValueError("window_size must be a positive integer")
         self._window = collections.deque(maxlen=window_size)
+        self._running_sum = 0.0
 
     def update(self, value: float) -> float:
         """Append value to the window and return the mean of the values currently
         held in the window (fewer than window_size before the window fills up)."""
+        if len(self._window) == self._window.maxlen:
+            self._running_sum -= self._window[0]
         self._window.append(value)
-        return sum(self._window) / len(self._window)
+        self._running_sum += value
+        return self._running_sum / len(self._window)
 
 
 def pool_rates_to_valence_arousal(

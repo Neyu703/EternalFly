@@ -73,9 +73,9 @@ def main() -> None:
         input_current_scale=30.0,
         valence_weight=1.0,  # calibrated against the real connectome, see scripts/calibrate_sentiment.py
         token_seed=42,
-        engagement_window_size=20,
+        engagement_window_size=5000,  # ~500 words of context, see scripts/calibrate_sentiment.py
         engagement_threshold=0.15,
-        min_ticks_before_boredom_check=40,
+        min_ticks_before_boredom_check=5000,
         device=device,
     )
     session = ReadingSession(neuron_count, scaled_adjacency_matrix, pool_indices, tokens, config)

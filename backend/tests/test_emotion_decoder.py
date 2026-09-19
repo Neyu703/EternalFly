@@ -36,6 +36,18 @@ def test_rolling_average_drops_oldest_values_once_window_is_full():
     assert rolling_average.update(30.0) == 25.0
 
 
+def test_rolling_average_running_sum_stays_correct_across_many_evictions():
+    # Guards the O(1) running-sum implementation: repeatedly evicting values must not
+    # let the running sum drift away from the true mean of the current window.
+    window_size = 5
+    rolling_average = RollingAverage(window_size=window_size)
+    values = [float(value) for value in range(1, 51)]
+    for value in values:
+        result = rolling_average.update(value)
+    expected_mean = sum(values[-window_size:]) / window_size
+    assert result == pytest.approx(expected_mean)
+
+
 def test_pool_rates_to_valence_arousal_computes_expected_tuple():
     valence, arousal = pool_rates_to_valence_arousal(
         approach_pool_rate=0.8, avoidance_pool_rate=0.2, arousal_pool_rate=0.5

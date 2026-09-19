@@ -33,6 +33,8 @@ quietly and stared at the wall for a long, dull, uneventful hour.
 WEIGHT_SCALE = 0.15
 INPUT_CURRENT_SCALE = 30.0
 VALENCE_WEIGHT = 1.0  # calibrated against the real connectome, see scripts/calibrate_sentiment.py
+TICKS_PER_WORD = 10
+CONTEXT_WORD_COUNT = 500  # how many recent words the rating/emotions average over
 
 
 def load_adjacency_as_torch_sparse(device: str) -> torch.Tensor:
@@ -66,13 +68,13 @@ def build_session() -> ReadingSession:
             refractory_period_ms=2.0,
             dt_ms=1.0,
         ),
-        ticks_per_word=10,
+        ticks_per_word=TICKS_PER_WORD,
         input_current_scale=INPUT_CURRENT_SCALE,
         valence_weight=VALENCE_WEIGHT,
         token_seed=42,
-        engagement_window_size=20,
+        engagement_window_size=CONTEXT_WORD_COUNT * TICKS_PER_WORD,
         engagement_threshold=0.15,
-        min_ticks_before_boredom_check=40,
+        min_ticks_before_boredom_check=CONTEXT_WORD_COUNT * TICKS_PER_WORD,
         device=device,
     )
     return ReadingSession(
