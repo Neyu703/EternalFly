@@ -3,6 +3,12 @@
   flex-direction: column;
   gap: 4px;
   flex-shrink: 0;
+  max-width: 200px;
+}
+
+.load-book-buttons {
+  display: flex;
+  gap: 6px;
 }
 
 .load-book-button {

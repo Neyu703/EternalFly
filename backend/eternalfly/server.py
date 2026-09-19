@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from starlette.websockets import WebSocketDisconnect
 
 from eternalfly.calibre_library import list_books
+from eternalfly.folder_library import list_books_in_folder
 from eternalfly.text_encoder import load_and_tokenize_file
 
 AUTOPLAY_MODE_OFF = "off"
@@ -129,6 +130,21 @@ def create_app(
         except ValueError as invalid_book_error:
             raise HTTPException(status_code=400, detail=str(invalid_book_error)) from invalid_book_error
         return {"status": "ok", "total_words": len(tokens)}
+
+    @app.get("/books-in-folder")
+    async def get_books_in_folder(path: str) -> dict:
+        """List .epub/.txt files directly inside the given folder, resolved to
+        absolute file paths the frontend can pass straight to /load-book. Lets the
+        user load an ad-hoc folder of books instead of a full Calibre library."""
+        try:
+            books = list_books_in_folder(pathlib.Path(path))
+        except FileNotFoundError as missing_folder_error:
+            raise HTTPException(status_code=404, detail=str(missing_folder_error)) from missing_folder_error
+        return {
+            "books": [
+                {"file_name": book.file_name, "file_path": str(book.file_path)} for book in books
+            ]
+        }
 
     @app.get("/calibre-books")
     async def get_calibre_books() -> dict:
