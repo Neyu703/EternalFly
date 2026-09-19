@@ -1,5 +1,7 @@
 import asyncio
 import sqlite3
+import threading
+import time
 
 import ebooklib.epub
 from fastapi.testclient import TestClient
@@ -73,6 +75,11 @@ class FakeIncrementingSession:
 
     def __init__(self):
         self._tick_count = 0
+        self.received_tokens: list[str] | None = None
+
+    def load_new_text(self, tokens: list[str]) -> None:
+        """Record tokens, so this fake can also exercise /load-book alongside /ws."""
+        self.received_tokens = tokens
 
     def tick(self) -> TickResult:
         """Return a TickResult whose rating increases by one on each successive call."""
@@ -248,6 +255,53 @@ def test_load_book_endpoint_returns_400_when_file_tokenizes_to_an_empty_book(tmp
 
     assert response.status_code == 400
     assert fake_session.received_tokens is None
+
+
+def test_load_book_endpoint_returns_504_when_parsing_exceeds_the_timeout(tmp_path, monkeypatch):
+    slow_path = tmp_path / "slow.txt"
+    slow_path.write_text("word", encoding="utf-8")
+
+    def slow_load_and_tokenize_file(path):
+        """Stand in for a pathological book whose parsing never finishes in time."""
+        time.sleep(1)
+        return ["word"]
+
+    monkeypatch.setattr("eternalfly.server.load_and_tokenize_file", slow_load_and_tokenize_file)
+    fake_session = FakeSessionTrackingLoadNewText()
+    client = TestClient(create_app(fake_session, load_book_timeout_seconds=0.05))
+
+    response = client.post("/load-book", json={"path": str(slow_path)})
+
+    assert response.status_code == 504
+    assert fake_session.received_tokens is None
+
+
+def test_load_book_endpoint_does_not_block_the_event_loop_while_parsing(tmp_path, monkeypatch):
+    slow_path = tmp_path / "slow.txt"
+    slow_path.write_text("word", encoding="utf-8")
+
+    def slow_load_and_tokenize_file(path):
+        """A blocking (non-async) call, matching real epub/txt parsing's sync API."""
+        time.sleep(0.2)
+        return ["word"]
+
+    monkeypatch.setattr("eternalfly.server.load_and_tokenize_file", slow_load_and_tokenize_file)
+    fake_session = FakeIncrementingSession()
+    client = TestClient(create_app(fake_session, tick_interval_seconds=0))
+
+    with client.websocket_connect("/ws") as websocket:
+        websocket.receive_json()
+        load_book_thread = threading.Thread(
+            target=lambda: client.post("/load-book", json={"path": str(slow_path)})
+        )
+        load_book_thread.start()
+        # If /load-book blocked the event loop, this would hang until the slow parse
+        # finishes; it should instead keep receiving ticks the whole time.
+        second_tick = websocket.receive_json()
+        load_book_thread.join(timeout=5)
+
+    assert second_tick["current_word"] == "word2"
+    assert not load_book_thread.is_alive()
 
 
 def _create_minimal_calibre_library(tmp_path):
