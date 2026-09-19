@@ -22,6 +22,7 @@ class ReadingSessionConfig:
     lif_parameters: LIFParameters
     ticks_per_word: int
     input_current_scale: float
+    valence_weight: float
     token_seed: int
     engagement_window_size: int
     engagement_threshold: float
@@ -104,6 +105,7 @@ class ReadingSession:
             len(self._sensory_pool_indices),
             self._config.input_current_scale,
             self._config.token_seed,
+            self._config.valence_weight,
         )
         return inject_currents_at_indices(
             self._neuron_count,
