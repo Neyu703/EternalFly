@@ -3,7 +3,6 @@ import type { ControlMessage } from "../hooks/useWebSocketTickData";
 import { LoadBookButton } from "./LoadBookButton";
 import { CalibreBookList } from "./CalibreBookList";
 import { PlaybackControls } from "./PlaybackControls";
-import { NeuralActivityChart } from "./NeuralActivityChart";
 import "./HudPanel.css";
 
 const EMOTION_COLORS: Record<string, string> = {
@@ -17,8 +16,9 @@ const EMOTION_COLORS: Record<string, string> = {
   anticipation: "#f4a261",
 };
 
-/** Dashboard panel: current reading position, rating, the 8 Plutchik emotion bars,
- * playback controls (pause/speed/autoplay-on-finish) and a live neural activity chart. */
+/** Dashboard panel: current reading position, rating, the 8 Plutchik emotion bars, and
+ * playback controls (pause/speed/autoplay-on-finish). The live neural activity chart is
+ * rendered separately, floating over the brain scene (see App.tsx). */
 export function HudPanel({
   tick,
   sendControlMessage,
@@ -57,8 +57,6 @@ export function HudPanel({
           <EmotionBar key={emotionName} name={emotionName} value={tick.emotions[emotionName] ?? 0} />
         ))}
       </div>
-
-      <NeuralActivityChart tick={tick} />
 
       {tick.wantsNewBook && (
         <div className="hud-bored-banner">
