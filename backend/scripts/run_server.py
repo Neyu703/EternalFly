@@ -1,6 +1,10 @@
-"""One-off script: start the real WebSocket server against the cached connectome and a
-short test text. Not unit-tested itself - composes already-tested eternalfly functions,
-mirrors cli_reading_demo.py's setup."""
+"""Dev script: start the real WebSocket server against the cached connectome and a
+short test text, with uvicorn's auto-reload watching the eternalfly package so `make
+dev` picks up backend code changes without a manual restart. Not unit-tested itself -
+composes already-tested eternalfly functions, mirrors cli_reading_demo.py's setup.
+
+Run as `python -m scripts.run_server` (from backend/, as the Makefile does) so uvicorn's
+reload subprocess can re-import this module by its "scripts.run_server:app" name."""
 
 import sys
 from pathlib import Path
@@ -74,12 +78,21 @@ def build_session() -> ReadingSession:
     )
 
 
+app = create_app(build_session(), tick_interval_seconds=0.05, calibre_library_path=CALIBRE_LIBRARY_PATH)
+
+
 def main() -> None:
-    """Start the uvicorn server on the given port (default 8000)."""
+    """Start uvicorn on the given port (default 8000), auto-reloading `app` whenever a
+    file under eternalfly/ or scripts/ changes."""
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
-    session = build_session()
-    app = create_app(session, tick_interval_seconds=0.05, calibre_library_path=CALIBRE_LIBRARY_PATH)
-    uvicorn.run(app, host="127.0.0.1", port=port, log_level="info")
+    uvicorn.run(
+        "scripts.run_server:app",
+        host="127.0.0.1",
+        port=port,
+        log_level="info",
+        reload=True,
+        reload_dirs=["eternalfly", "scripts"],
+    )
 
 
 if __name__ == "__main__":
