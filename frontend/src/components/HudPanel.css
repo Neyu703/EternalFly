@@ -69,27 +69,6 @@
   transition: width 0.3s ease;
 }
 
-.hud-rating {
-  padding: 6px 16px;
-  background: #131b24;
-  border-radius: 8px;
-  text-align: center;
-  flex-shrink: 0;
-}
-
-.hud-rating-value {
-  font-size: 28px;
-  font-weight: 700;
-  color: #ffd166;
-}
-
-.hud-rating-suffix {
-  display: block;
-  font-size: 11px;
-  color: #8b98a5;
-  white-space: nowrap;
-}
-
 .hud-emotions {
   display: flex;
   flex-wrap: wrap;
