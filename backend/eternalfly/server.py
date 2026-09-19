@@ -18,6 +18,8 @@ AUTOPLAY_MODE_OFF = "off"
 AUTOPLAY_MODE_RESTART = "restart"
 AUTOPLAY_MODE_SHUFFLE = "shuffle"
 
+DEFAULT_LOAD_BOOK_TIMEOUT_SECONDS = 30.0
+
 
 def tick_result_to_json(tick_result) -> dict:
     """Convert a TickResult into a plain JSON-serializable dict mirroring its fields."""
@@ -72,6 +74,7 @@ def create_app(
     session,
     tick_interval_seconds: float = 0.05,
     calibre_library_path: pathlib.Path | None = None,
+    load_book_timeout_seconds: float = DEFAULT_LOAD_BOOK_TIMEOUT_SECONDS,
 ) -> FastAPI:
     """Build a FastAPI app that streams `session.tick()` results over `/ws` as JSON,
     one message per tick, until the client disconnects."""
@@ -121,14 +124,27 @@ def create_app(
     @app.post("/load-book")
     async def load_book(request: LoadBookRequest) -> dict:
         """Load and tokenize the file at request.path, then feed its tokens into the
-        running session as the new book, restarting word progress from the beginning."""
+        running session as the new book, restarting word progress from the beginning.
+
+        Parsing runs in a worker thread (not directly on the event loop), so a slow or
+        pathological book doesn't freeze the live WebSocket tick stream while it loads,
+        and a timeout guarantees this request always resolves instead of hanging the
+        frontend's "loading" state forever on a book that never finishes parsing."""
         try:
-            tokens = load_and_tokenize_file(pathlib.Path(request.path))
+            tokens = await asyncio.wait_for(
+                asyncio.to_thread(load_and_tokenize_file, pathlib.Path(request.path)),
+                timeout=load_book_timeout_seconds,
+            )
             session.load_new_text(tokens)
         except FileNotFoundError as missing_file_error:
             raise HTTPException(status_code=404, detail=str(missing_file_error)) from missing_file_error
         except ValueError as invalid_book_error:
             raise HTTPException(status_code=400, detail=str(invalid_book_error)) from invalid_book_error
+        except asyncio.TimeoutError as timeout_error:
+            raise HTTPException(
+                status_code=504,
+                detail=f"Loading this book took longer than {load_book_timeout_seconds:.0f}s",
+            ) from timeout_error
         return {"status": "ok", "total_words": len(tokens)}
 
     @app.get("/books-in-folder")
