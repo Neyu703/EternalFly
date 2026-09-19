@@ -6,6 +6,7 @@ from eternalfly.text_encoder import (
     NOISE_HALF_WIDTH,
     extract_epub_text,
     load_and_tokenize_file,
+    project_arousal_to_currents,
     project_token_to_currents,
     project_valence_to_currents,
     read_text_file,
@@ -121,6 +122,39 @@ def test_project_valence_to_currents_raises_on_invalid_channel():
         project_valence_to_currents(
             "wonderful", pool_size=4, current_scale=10.0, valence_weight=1.0, channel="sideways"
         )
+
+
+def test_project_arousal_to_currents_excites_for_a_positive_word():
+    currents = project_arousal_to_currents("wonderful", pool_size=4, current_scale=10.0, arousal_weight=1.0)
+    assert numpy.all(currents > 0.0)
+
+
+def test_project_arousal_to_currents_excites_for_a_negative_word():
+    currents = project_arousal_to_currents("kill", pool_size=4, current_scale=10.0, arousal_weight=1.0)
+    assert numpy.all(currents > 0.0)
+
+
+def test_project_arousal_to_currents_is_stronger_for_more_extreme_sentiment():
+    mild_currents = project_arousal_to_currents("okay", pool_size=4, current_scale=10.0, arousal_weight=1.0)
+    extreme_currents = project_arousal_to_currents("kill", pool_size=4, current_scale=10.0, arousal_weight=1.0)
+    assert extreme_currents[0] > mild_currents[0]
+
+
+def test_project_arousal_to_currents_is_zero_for_a_neutral_word():
+    currents = project_arousal_to_currents("dragon", pool_size=4, current_scale=10.0, arousal_weight=1.0)
+    numpy.testing.assert_array_equal(currents, numpy.zeros(4))
+
+
+def test_project_arousal_to_currents_never_negative():
+    for word in ["wonderful", "kill", "dragon"]:
+        currents = project_arousal_to_currents(word, pool_size=4, current_scale=10.0, arousal_weight=1.0)
+        assert numpy.all(currents >= 0.0)
+
+
+def test_project_arousal_to_currents_scales_with_arousal_weight():
+    low_weight_currents = project_arousal_to_currents("kill", pool_size=4, current_scale=10.0, arousal_weight=1.0)
+    high_weight_currents = project_arousal_to_currents("kill", pool_size=4, current_scale=10.0, arousal_weight=2.0)
+    numpy.testing.assert_allclose(high_weight_currents, low_weight_currents * 2.0)
 
 
 def _build_tiny_epub(epub_path):

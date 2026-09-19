@@ -62,6 +62,19 @@ def project_valence_to_currents(
     return numpy.full(pool_size, current_value, dtype=numpy.float64)
 
 
+def project_arousal_to_currents(token: str, pool_size: int, current_scale: float, arousal_weight: float) -> numpy.ndarray:
+    """Return a pool_size-length array of purely excitatory currents for the
+    octopaminergic arousal channel (real arousal/alertness-coding neurons — see
+    scripts/build_connectome_cache.py's AROUSAL_OCTOPAMINERGIC_NEUROPILS), proportional
+    to how emotionally charged token is: its sentiment magnitude regardless of sign,
+    since octopamine drives general arousal in Drosophila rather than a positive/
+    negative direction (that's what the valence channels are for). A neutral or
+    unscored word contributes zero current here."""
+    magnitude = abs(word_valence(token))
+    current_value = magnitude * arousal_weight * current_scale
+    return numpy.full(pool_size, current_value, dtype=numpy.float64)
+
+
 def extract_epub_text(epub_path: pathlib.Path) -> str:
     """Read an epub file and return its plain text, stripped of HTML tags, with all
     document items joined by a space in the epub's item order."""

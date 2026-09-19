@@ -1,6 +1,6 @@
 [project]
 name = "eternalfly"
-version = "0.1.36"
+version = "0.1.37"
 description = "Live spiking simulation of the FlyWire fly connectome reading a book"
 requires-python = ">=3.13"
 dependencies = [

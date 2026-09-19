@@ -12,7 +12,7 @@ from eternalfly.session_helpers import (
     inject_currents_at_indices,
     word_index_for_tick,
 )
-from eternalfly.text_encoder import project_token_to_currents, project_valence_to_currents
+from eternalfly.text_encoder import project_arousal_to_currents, project_token_to_currents, project_valence_to_currents
 
 
 @dataclass(frozen=True)
@@ -23,6 +23,7 @@ class ReadingSessionConfig:
     ticks_per_word: int
     input_current_scale: float
     valence_weight: float
+    arousal_weight: float
     token_seed: int
     engagement_window_size: int
     engagement_threshold: float
@@ -59,12 +60,15 @@ class ReadingSession:
         neuropil_pool_indices: dict[str, torch.Tensor] | None = None,
     ):
         """Create a session over tokens, using pool_indices["sensory_input"/"approach"/
-        "avoidance"/"arousal"/"valence_positive"/"valence_negative"] (index tensors
-        into the neuron_count-sized network). valence_positive/valence_negative are
-        real dopaminergic neurons synapsing onto the approach/avoidance compartments
-        respectively (see scripts/build_connectome_cache.py) — each word's sentiment
-        actively excites one of these two channels (see _current_external_input),
-        rather than only shifting the sensory pool's own drive up or down.
+        "avoidance"/"arousal"/"valence_positive"/"valence_negative"/"arousal_input"]
+        (index tensors into the neuron_count-sized network). valence_positive/
+        valence_negative are real dopaminergic neurons synapsing onto the approach/
+        avoidance compartments respectively, and arousal_input is real octopaminergic
+        neurons synapsing onto the arousal compartment (see
+        scripts/build_connectome_cache.py) — each word's sentiment actively excites
+        the matching valence channel, and its sentiment *magnitude* (regardless of
+        sign) actively excites arousal_input (see _current_external_input), rather
+        than only shifting the sensory pool's own drive up or down.
 
         neuropil_pool_indices optionally maps arbitrary region names (e.g. real FlyWire
         neuropil codes) to index tensors, tracked purely for reporting live per-region
@@ -78,6 +82,7 @@ class ReadingSession:
         self._arousal_pool_indices = pool_indices["arousal"].to(config.device)
         self._valence_positive_pool_indices = pool_indices["valence_positive"].to(config.device)
         self._valence_negative_pool_indices = pool_indices["valence_negative"].to(config.device)
+        self._arousal_input_pool_indices = pool_indices["arousal_input"].to(config.device)
         self._tokens = tokens
         self._config = config
 
@@ -140,6 +145,16 @@ class ReadingSession:
                 torch.as_tensor(valence_currents, dtype=torch.float32),
                 self._config.device,
             )
+
+        arousal_currents = project_arousal_to_currents(
+            token, len(self._arousal_input_pool_indices), self._config.input_current_scale, self._config.arousal_weight
+        )
+        external_input = external_input + inject_currents_at_indices(
+            self._neuron_count,
+            self._arousal_input_pool_indices,
+            torch.as_tensor(arousal_currents, dtype=torch.float32),
+            self._config.device,
+        )
 
         return external_input
 

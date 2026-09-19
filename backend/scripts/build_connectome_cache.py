@@ -45,6 +45,14 @@ VALENCE_DOPAMINERGIC_NEUROPILS = {
     "valence_negative": POOL_NEUROPILS["avoidance"],
 }
 
+# Octopamine is Drosophila's real arousal/stress neuromodulator (the functional
+# analog of noradrenaline): broadly excitatory, promotes wakefulness/alertness, and
+# is a well-established real input to the central complex (our "arousal" pool's
+# neuropils) — the same role dopamine plays for approach/avoidance, but for arousal.
+AROUSAL_OCTOPAMINERGIC_NEUROPILS = {
+    "arousal_input": POOL_NEUROPILS["arousal"],
+}
+
 
 def build_pool_indices(
     post_neuropil_table,
@@ -67,36 +75,38 @@ def build_pool_indices(
     return pool_indices
 
 
-def build_dopaminergic_valence_pool_indices(
+def build_neurotransmitter_filtered_pool_indices(
     connections_table,
     pre_neuropil_table,
     root_ids: numpy.ndarray,
     neuron_id_to_index: dict[int, int],
-    valence_neuropils: dict[str, list[str]],
+    neurotransmitter_label: str,
+    pool_neuropils: dict[str, list[str]],
 ) -> dict[str, numpy.ndarray]:
-    """Select each valence pool's neuron indices: proofread presynaptic neurons whose
-    own dominant neurotransmitter is dopamine, restricted to those synapsing into that
-    pool's target neuropils. Unlike build_pool_indices, keeps every matching neuron
-    rather than a top-activity fraction — being real, dopamine-dominant presynaptic
-    partners of that specific compartment is already a strong, biologically-motivated
-    filter (a few hundred neurons here, not the thousands build_pool_indices narrows
-    down from)."""
+    """Select each pool's neuron indices: proofread presynaptic neurons whose own
+    dominant neurotransmitter is neurotransmitter_label (e.g. "da" for dopaminergic
+    reward/punishment, "oct" for octopaminergic arousal), restricted to those
+    synapsing into that pool's target neuropils. Unlike build_pool_indices, keeps
+    every matching neuron rather than a top-activity fraction — being a real,
+    specific-neurotransmitter presynaptic partner of that compartment is already a
+    strong, biologically-motivated filter (a few hundred neurons here, not the
+    thousands build_pool_indices narrows down from)."""
     per_neuron_nt_table = aggregate_neurotransmitter_by_neuron(connections_table, "pre_pt_root_id")
     neuron_nt_labels = dominant_neurotransmitter_labels(per_neuron_nt_table)
-    dopaminergic_neuron_ids = per_neuron_nt_table["pre_pt_root_id"].to_numpy()[neuron_nt_labels == "da"]
+    matching_neuron_ids = per_neuron_nt_table["pre_pt_root_id"].to_numpy()[neuron_nt_labels == neurotransmitter_label]
 
     pool_indices = {}
-    for pool_name, target_neuropils in valence_neuropils.items():
+    for pool_name, target_neuropils in pool_neuropils.items():
         candidate_ids, candidate_counts = aggregate_neuron_activity_by_neuropil(
             pre_neuropil_table, target_neuropils, "pre_pt_root_id"
         )
-        is_dopaminergic = numpy.isin(
-            candidate_ids.astype(numpy.int64), dopaminergic_neuron_ids.astype(numpy.int64)
+        matches_neurotransmitter = numpy.isin(
+            candidate_ids.astype(numpy.int64), matching_neuron_ids.astype(numpy.int64)
         )
-        dopaminergic_candidate_ids = candidate_ids[is_dopaminergic]
-        dopaminergic_candidate_counts = candidate_counts[is_dopaminergic]
+        matching_candidate_ids = candidate_ids[matches_neurotransmitter]
+        matching_candidate_counts = candidate_counts[matches_neurotransmitter]
         known_ids, _known_counts = filter_ids_to_known_set(
-            dopaminergic_candidate_ids, dopaminergic_candidate_counts, root_ids
+            matching_candidate_ids, matching_candidate_counts, root_ids
         )
         pool_indices[pool_name] = numpy.array([neuron_id_to_index[int(neuron_id)] for neuron_id in known_ids])
     return pool_indices
@@ -130,8 +140,13 @@ def main() -> None:
 
     pre_neuropil_table = load_feather_table(DATA_DIR / "per_neuron_neuropil_count_pre_783.feather")
     pool_indices.update(
-        build_dopaminergic_valence_pool_indices(
-            connections_table, pre_neuropil_table, root_ids, neuron_id_to_index, VALENCE_DOPAMINERGIC_NEUROPILS
+        build_neurotransmitter_filtered_pool_indices(
+            connections_table, pre_neuropil_table, root_ids, neuron_id_to_index, "da", VALENCE_DOPAMINERGIC_NEUROPILS
+        )
+    )
+    pool_indices.update(
+        build_neurotransmitter_filtered_pool_indices(
+            connections_table, pre_neuropil_table, root_ids, neuron_id_to_index, "oct", AROUSAL_OCTOPAMINERGIC_NEUROPILS
         )
     )
 
