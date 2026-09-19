@@ -1,0 +1,37 @@
+.neural-activity-panel {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 14px;
+  background: #131b24;
+  border-radius: 8px;
+}
+
+.neural-activity-stats {
+  display: flex;
+  gap: 14px;
+}
+
+.neural-activity-stat {
+  display: flex;
+  flex-direction: column;
+}
+
+.neural-activity-stat-value {
+  font-size: 16px;
+  font-weight: 700;
+  color: #7fd4ff;
+}
+
+.neural-activity-stat-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #8b98a5;
+}
+
+.neural-activity-sparkline {
+  width: 120px;
+  height: 32px;
+}

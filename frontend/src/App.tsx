@@ -8,7 +8,7 @@ const BACKEND_WS_URL = "ws://127.0.0.1:8000/ws";
 
 /** Dashboard layout: the two 3D panels (fly+book, brain) side by side on top, live data panel below. */
 function App() {
-  const tick = useWebSocketTickData(BACKEND_WS_URL);
+  const { tick, sendControlMessage } = useWebSocketTickData(BACKEND_WS_URL);
 
   return (
     <div className="dashboard">
@@ -21,7 +21,11 @@ function App() {
         </div>
       </div>
       <div className="dashboard-panel dashboard-panel--hud">
-        {tick ? <HudPanel tick={tick} /> : <div className="hud-connecting">Verbinde mit der Simulation…</div>}
+        {tick ? (
+          <HudPanel tick={tick} sendControlMessage={sendControlMessage} />
+        ) : (
+          <div className="hud-connecting">Verbinde mit der Simulation…</div>
+        )}
       </div>
     </div>
   );

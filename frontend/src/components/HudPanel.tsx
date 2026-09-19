@@ -1,6 +1,9 @@
 import { EMOTION_NAMES, type TickData } from "../types";
+import type { ControlMessage } from "../hooks/useWebSocketTickData";
 import { LoadBookButton } from "./LoadBookButton";
 import { CalibreBookList } from "./CalibreBookList";
+import { PlaybackControls } from "./PlaybackControls";
+import { NeuralActivityChart } from "./NeuralActivityChart";
 import "./HudPanel.css";
 
 const EMOTION_COLORS: Record<string, string> = {
@@ -14,10 +17,19 @@ const EMOTION_COLORS: Record<string, string> = {
   anticipation: "#f4a261",
 };
 
-/** Dashboard panel: current reading position, rating and the 8 Plutchik emotion bars. */
-export function HudPanel({ tick }: { tick: TickData }) {
+/** Dashboard panel: current reading position, rating, the 8 Plutchik emotion bars,
+ * playback controls (pause/speed/autoplay-on-finish) and a live neural activity chart. */
+export function HudPanel({
+  tick,
+  sendControlMessage,
+}: {
+  tick: TickData;
+  sendControlMessage: (message: ControlMessage) => void;
+}) {
   return (
     <div className="hud-panel">
+      <PlaybackControls sendControlMessage={sendControlMessage} />
+
       <div className="hud-section hud-word-section">
         <span className="hud-label">Liest:</span>
         <span className="hud-word">{tick.currentWord ?? "—"}</span>
@@ -45,6 +57,8 @@ export function HudPanel({ tick }: { tick: TickData }) {
           <EmotionBar key={emotionName} name={emotionName} value={tick.emotions[emotionName] ?? 0} />
         ))}
       </div>
+
+      <NeuralActivityChart tick={tick} />
 
       {tick.wantsNewBook && (
         <div className="hud-bored-banner">
