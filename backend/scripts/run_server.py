@@ -32,6 +32,7 @@ quietly and stared at the wall for a long, dull, uneventful hour.
 
 WEIGHT_SCALE = 0.15
 INPUT_CURRENT_SCALE = 30.0
+VALENCE_WEIGHT = 1.0  # calibrated against the real connectome, see scripts/calibrate_sentiment.py
 
 
 def load_adjacency_as_torch_sparse(device: str) -> torch.Tensor:
@@ -67,6 +68,7 @@ def build_session() -> ReadingSession:
         ),
         ticks_per_word=10,
         input_current_scale=INPUT_CURRENT_SCALE,
+        valence_weight=VALENCE_WEIGHT,
         token_seed=42,
         engagement_window_size=20,
         engagement_threshold=0.15,

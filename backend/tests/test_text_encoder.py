@@ -3,6 +3,7 @@ import numpy
 import pytest
 
 from eternalfly.text_encoder import (
+    NOISE_HALF_WIDTH,
     extract_epub_text,
     load_and_tokenize_file,
     project_token_to_currents,
@@ -29,38 +30,75 @@ def test_tokenize_text_returns_empty_list_for_empty_string():
 
 def test_project_token_to_currents_is_reproducible_across_calls():
     first_call_currents = project_token_to_currents(
-        "dragon", pool_size=8, current_scale=1.0, seed=42
+        "dragon", pool_size=8, current_scale=1.0, seed=42, valence_weight=1.0
     )
     second_call_currents = project_token_to_currents(
-        "dragon", pool_size=8, current_scale=1.0, seed=42
+        "dragon", pool_size=8, current_scale=1.0, seed=42, valence_weight=1.0
     )
     numpy.testing.assert_array_equal(first_call_currents, second_call_currents)
 
 
 def test_project_token_to_currents_differs_between_different_tokens():
     dragon_currents = project_token_to_currents(
-        "dragon", pool_size=8, current_scale=1.0, seed=42
+        "dragon", pool_size=8, current_scale=1.0, seed=42, valence_weight=1.0
     )
     castle_currents = project_token_to_currents(
-        "castle", pool_size=8, current_scale=1.0, seed=42
+        "castle", pool_size=8, current_scale=1.0, seed=42, valence_weight=1.0
     )
     assert not numpy.array_equal(dragon_currents, castle_currents)
 
 
 def test_project_token_to_currents_returns_pool_size_length_array_scaled_by_current_scale():
-    currents = project_token_to_currents("dragon", pool_size=5, current_scale=2.0, seed=1)
+    currents = project_token_to_currents(
+        "dragon", pool_size=5, current_scale=2.0, seed=1, valence_weight=0.0
+    )
     assert currents.shape == (5,)
-    assert numpy.all(currents >= 0.0) and numpy.all(currents <= 2.0)
+    # "dragon" is not in the sentiment lexicon (valence 0.0), so with valence_weight=0.0
+    # the result is exactly the zero-mean noise term, bounded by current_scale * NOISE_HALF_WIDTH.
+    bound = 2.0 * NOISE_HALF_WIDTH
+    assert numpy.all(currents >= -bound) and numpy.all(currents <= bound)
+
+
+def test_project_token_to_currents_shifts_mean_down_for_a_positive_word():
+    # Negated relative to word_valence's own sign: see project_token_to_currents's
+    # docstring for why (calibrated against the real connectome).
+    neutral_currents = project_token_to_currents(
+        "dragon", pool_size=2000, current_scale=1.0, seed=1, valence_weight=1.0
+    )
+    positive_currents = project_token_to_currents(
+        "wonderful", pool_size=2000, current_scale=1.0, seed=1, valence_weight=1.0
+    )
+    assert positive_currents.mean() < neutral_currents.mean()
+
+
+def test_project_token_to_currents_shifts_mean_up_for_a_negative_word():
+    neutral_currents = project_token_to_currents(
+        "dragon", pool_size=2000, current_scale=1.0, seed=1, valence_weight=1.0
+    )
+    negative_currents = project_token_to_currents(
+        "kill", pool_size=2000, current_scale=1.0, seed=1, valence_weight=1.0
+    )
+    assert negative_currents.mean() > neutral_currents.mean()
+
+
+def test_project_token_to_currents_valence_weight_zero_ignores_sentiment():
+    positive_word_currents = project_token_to_currents(
+        "wonderful", pool_size=2000, current_scale=1.0, seed=1, valence_weight=0.0
+    )
+    negative_word_currents = project_token_to_currents(
+        "kill", pool_size=2000, current_scale=1.0, seed=1, valence_weight=0.0
+    )
+    assert positive_word_currents.mean() == pytest.approx(negative_word_currents.mean(), abs=0.05)
 
 
 def test_project_token_to_currents_raises_on_non_positive_pool_size():
     with pytest.raises(ValueError):
-        project_token_to_currents("dragon", pool_size=0, current_scale=1.0, seed=1)
+        project_token_to_currents("dragon", pool_size=0, current_scale=1.0, seed=1, valence_weight=1.0)
 
 
 def test_project_token_to_currents_raises_on_non_integer_pool_size():
     with pytest.raises(ValueError):
-        project_token_to_currents("dragon", pool_size=3.5, current_scale=1.0, seed=1)
+        project_token_to_currents("dragon", pool_size=3.5, current_scale=1.0, seed=1, valence_weight=1.0)
 
 
 def _build_tiny_epub(epub_path):

@@ -29,6 +29,7 @@ def _make_config(**overrides) -> ReadingSessionConfig:
         lif_parameters=LIF_PARAMETERS,
         ticks_per_word=2,
         input_current_scale=0.5,
+        valence_weight=1.0,
         token_seed=0,
         engagement_window_size=3,
         engagement_threshold=0.3,

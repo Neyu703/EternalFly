@@ -71,6 +71,7 @@ def main() -> None:
         ),
         ticks_per_word=10,
         input_current_scale=30.0,
+        valence_weight=1.0,  # calibrated against the real connectome, see scripts/calibrate_sentiment.py
         token_seed=42,
         engagement_window_size=20,
         engagement_threshold=0.15,
