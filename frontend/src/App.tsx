@@ -1,6 +1,7 @@
 import { FlyBookScene } from "./components/FlyBookScene";
 import { BrainScene } from "./components/BrainScene";
 import { HudPanel } from "./components/HudPanel";
+import { NeuralActivityChart } from "./components/NeuralActivityChart";
 import { useWebSocketTickData } from "./hooks/useWebSocketTickData";
 import "./App.css";
 
@@ -18,6 +19,7 @@ function App() {
         </div>
         <div className="dashboard-panel dashboard-panel--brain">
           <BrainScene activity={tick?.neuropilActivity} />
+          {tick && <NeuralActivityChart tick={tick} />}
         </div>
       </div>
       <div className="dashboard-panel dashboard-panel--hud">
