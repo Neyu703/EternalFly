@@ -196,6 +196,99 @@ def test_load_new_text_raises_value_error_on_empty_token_list():
         session.load_new_text([])
 
 
+def test_tick_reports_book_finished_false_while_book_still_has_words():
+    session = ReadingSession(NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["hello", "world"], _make_config())
+
+    tick_result = session.tick()
+
+    assert tick_result.book_finished is False
+
+
+def test_tick_reports_book_finished_true_once_book_is_finished():
+    session = ReadingSession(NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["hello"], _make_config(ticks_per_word=1))
+
+    session.tick()
+    after_book_end = session.tick()
+
+    assert after_book_end.book_finished is True
+
+
+def test_restart_resets_word_progress_to_first_word_keeping_same_tokens():
+    session = ReadingSession(
+        NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["hello", "world"], _make_config(ticks_per_word=1)
+    )
+    session.tick()
+    session.tick()
+
+    session.restart()
+    tick_result = session.tick()
+
+    assert tick_result.current_word == "hello"
+    assert tick_result.total_words == 2
+
+
+def test_restart_preserves_lif_state_and_engagement_tracking():
+    session = ReadingSession(
+        NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["hello", "world", "again"],
+        _make_config(ticks_per_word=1, min_ticks_before_boredom_check=3),
+    )
+    for _ in range(4):
+        session.tick()
+    state_before_restart = session._state
+    engagement_average_before_restart = session._engagement_average
+
+    session.restart()
+
+    assert session._state is state_before_restart
+    assert session._engagement_average is engagement_average_before_restart
+
+
+def test_set_paused_true_freezes_tick_result_instead_of_advancing():
+    session = ReadingSession(NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["hello", "world"], _make_config())
+    first_tick = session.tick()
+
+    session.set_paused(True)
+    second_tick = session.tick()
+    third_tick = session.tick()
+
+    assert second_tick == first_tick
+    assert third_tick == first_tick
+
+
+def test_set_paused_false_after_pause_resumes_advancing():
+    session = ReadingSession(
+        NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["hello", "world"], _make_config(ticks_per_word=1)
+    )
+    session.tick()
+
+    session.set_paused(True)
+    session.tick()
+    session.set_paused(False)
+    resumed_tick = session.tick()
+
+    assert resumed_tick.current_word == "world"
+
+
+def test_set_speed_multiplier_above_one_advances_words_faster():
+    session = ReadingSession(
+        NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["hello", "world"], _make_config(ticks_per_word=4)
+    )
+    session.set_speed_multiplier(4.0)
+
+    first_tick = session.tick()
+    second_tick = session.tick()
+
+    assert first_tick.current_word == "hello"
+    assert second_tick.current_word == "world"
+
+
+def test_set_speed_multiplier_non_positive_raises_value_error():
+    session = ReadingSession(NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["hello"], _make_config())
+
+    with pytest.raises(ValueError, match="speed multiplier must be positive"):
+        session.set_speed_multiplier(0.0)
+
+
 def test_pool_spike_rate_of_nan_is_never_produced_even_with_empty_pool():
     empty_pool_indices = dict(POOL_INDICES)
     empty_pool_indices["approach"] = torch.tensor([], dtype=torch.int64)
