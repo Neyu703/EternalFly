@@ -312,6 +312,34 @@ def test_calibre_books_endpoint_returns_404_when_configured_library_path_has_no_
     assert response.status_code == 404
 
 
+def test_books_in_folder_endpoint_returns_epub_and_txt_files_in_the_given_folder(tmp_path):
+    (tmp_path / "Zebra.epub").write_bytes(b"")
+    (tmp_path / "apple.txt").write_bytes(b"")
+    (tmp_path / "cover.jpg").write_bytes(b"")
+    fake_session = FakeSessionTrackingLoadNewText()
+    client = TestClient(create_app(fake_session))
+
+    response = client.get("/books-in-folder", params={"path": str(tmp_path)})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "books": [
+            {"file_name": "apple.txt", "file_path": str(tmp_path / "apple.txt")},
+            {"file_name": "Zebra.epub", "file_path": str(tmp_path / "Zebra.epub")},
+        ]
+    }
+
+
+def test_books_in_folder_endpoint_returns_404_for_a_missing_folder(tmp_path):
+    missing_folder = tmp_path / "does_not_exist"
+    fake_session = FakeSessionTrackingLoadNewText()
+    client = TestClient(create_app(fake_session))
+
+    response = client.get("/books-in-folder", params={"path": str(missing_folder)})
+
+    assert response.status_code == 404
+
+
 class FakeControllableSession:
     """Fake session for exercising playback control messages: records every control
     call it receives, and can be scripted to report the book as finished from a given
