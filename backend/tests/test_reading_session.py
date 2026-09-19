@@ -7,13 +7,15 @@ from eternalfly.emotion_decoder import compute_emotions, compute_rating, pool_ra
 from eternalfly.lif import LIFParameters
 from eternalfly.reading_session import ReadingSession, ReadingSessionConfig
 
-NEURON_COUNT = 5
+NEURON_COUNT = 7
 ZERO_ADJACENCY = torch.zeros((NEURON_COUNT, NEURON_COUNT))
 POOL_INDICES = {
     "sensory_input": torch.tensor([0, 1], dtype=torch.int64),
     "approach": torch.tensor([2], dtype=torch.int64),
     "avoidance": torch.tensor([3], dtype=torch.int64),
     "arousal": torch.tensor([4], dtype=torch.int64),
+    "valence_positive": torch.tensor([5], dtype=torch.int64),
+    "valence_negative": torch.tensor([6], dtype=torch.int64),
 }
 LIF_PARAMETERS = LIFParameters(
     membrane_time_constant_ms=20.0,

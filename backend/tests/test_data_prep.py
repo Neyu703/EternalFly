@@ -6,6 +6,7 @@ import pytest
 from eternalfly.data_prep import (
     aggregate_connections_by_neuron_pair,
     aggregate_neuron_activity_by_neuropil,
+    aggregate_neurotransmitter_by_neuron,
     build_neuron_index,
     dominant_neurotransmitter_labels,
     filter_ids_to_known_set,
@@ -108,6 +109,52 @@ def test_aggregate_connections_by_neuron_pair_returns_expected_columns_only():
         "pre_pt_root_id", "post_pt_root_id", "syn_count",
         "gaba_avg", "ach_avg", "glut_avg", "oct_avg", "ser_avg", "da_avg",
     }
+
+
+def test_aggregate_neurotransmitter_by_neuron_weights_by_syn_count_across_all_connections():
+    connections_table = _make_connections_table([
+        {
+            "pre_pt_root_id": 100, "post_pt_root_id": 200, "neuropil": "ME_L",
+            "syn_count": 3, "gaba_avg": 0.1, "ach_avg": 0.8, "glut_avg": 0.05,
+            "da_avg": 0.03, "oct_avg": 0.01, "ser_avg": 0.01,
+        },
+        {
+            "pre_pt_root_id": 100, "post_pt_root_id": 300, "neuropil": "MB_CA_L",
+            "syn_count": 1, "gaba_avg": 0.9, "ach_avg": 0.05, "glut_avg": 0.02,
+            "da_avg": 0.01, "oct_avg": 0.01, "ser_avg": 0.01,
+        },
+    ])
+
+    aggregated_table = aggregate_neurotransmitter_by_neuron(connections_table, "pre_pt_root_id")
+    aggregated_row = aggregated_table.to_pylist()[0]
+
+    # Same weighted-average math as aggregate_connections_by_neuron_pair, but grouped
+    # by the single pre-neuron across BOTH of its post-partners (200 and 300).
+    assert aggregated_row["pre_pt_root_id"] == 100
+    assert aggregated_row["syn_count"] == 4
+    assert aggregated_row["gaba_avg"] == pytest.approx(0.3)
+    assert aggregated_row["ach_avg"] == pytest.approx(0.6125)
+
+
+def test_aggregate_neurotransmitter_by_neuron_keeps_neurons_separate():
+    connections_table = _make_connections_table([
+        {
+            "pre_pt_root_id": 100, "post_pt_root_id": 200, "neuropil": "ME_L",
+            "syn_count": 2, "gaba_avg": 0.9, "ach_avg": 0.05, "glut_avg": 0.02,
+            "da_avg": 0.01, "oct_avg": 0.01, "ser_avg": 0.01,
+        },
+        {
+            "pre_pt_root_id": 500, "post_pt_root_id": 200, "neuropil": "ME_L",
+            "syn_count": 2, "gaba_avg": 0.05, "ach_avg": 0.05, "glut_avg": 0.02,
+            "da_avg": 0.85, "oct_avg": 0.02, "ser_avg": 0.01,
+        },
+    ])
+
+    aggregated_table = aggregate_neurotransmitter_by_neuron(connections_table, "pre_pt_root_id")
+    labels = dominant_neurotransmitter_labels(aggregated_table)
+
+    rows_by_pre_id = dict(zip(aggregated_table["pre_pt_root_id"].to_pylist(), labels.tolist()))
+    assert rows_by_pre_id == {100: "gaba", 500: "da"}
 
 
 def test_dominant_neurotransmitter_labels_picks_max_column_per_row():

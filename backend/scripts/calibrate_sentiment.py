@@ -1,9 +1,10 @@
-"""One-off script: measures how strongly project_token_to_currents's valence bias
-actually shows up in the final rating on the real cached connectome, comparing a
-clearly positive, a clearly negative, and a neutral passage. Not unit-tested itself -
-this is exploratory tooling for re-tuning ReadingSessionConfig.valence_weight (and
-engagement_window_size) if the connectome cache or lexicon ever change; see
-text_encoder.project_token_to_currents's docstring for what its results established."""
+"""One-off script: measures how strongly the dopaminergic valence_positive/
+valence_negative channels (see text_encoder.project_valence_to_currents and
+reading_session.ReadingSession._current_external_input) actually shift the final
+rating on the real cached connectome, comparing a clearly positive, a clearly
+negative, and a neutral passage. Not unit-tested itself - this is exploratory tooling
+for re-tuning ReadingSessionConfig.valence_weight (and engagement_window_size) if the
+connectome cache or lexicon ever change."""
 
 import sys
 from pathlib import Path

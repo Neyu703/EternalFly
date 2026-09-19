@@ -12,7 +12,7 @@ from eternalfly.session_helpers import (
     inject_currents_at_indices,
     word_index_for_tick,
 )
-from eternalfly.text_encoder import project_token_to_currents
+from eternalfly.text_encoder import project_token_to_currents, project_valence_to_currents
 
 
 @dataclass(frozen=True)
@@ -59,7 +59,12 @@ class ReadingSession:
         neuropil_pool_indices: dict[str, torch.Tensor] | None = None,
     ):
         """Create a session over tokens, using pool_indices["sensory_input"/"approach"/
-        "avoidance"/"arousal"] (index tensors into the neuron_count-sized network).
+        "avoidance"/"arousal"/"valence_positive"/"valence_negative"] (index tensors
+        into the neuron_count-sized network). valence_positive/valence_negative are
+        real dopaminergic neurons synapsing onto the approach/avoidance compartments
+        respectively (see scripts/build_connectome_cache.py) — each word's sentiment
+        actively excites one of these two channels (see _current_external_input),
+        rather than only shifting the sensory pool's own drive up or down.
 
         neuropil_pool_indices optionally maps arbitrary region names (e.g. real FlyWire
         neuropil codes) to index tensors, tracked purely for reporting live per-region
@@ -71,6 +76,8 @@ class ReadingSession:
         self._approach_pool_indices = pool_indices["approach"].to(config.device)
         self._avoidance_pool_indices = pool_indices["avoidance"].to(config.device)
         self._arousal_pool_indices = pool_indices["arousal"].to(config.device)
+        self._valence_positive_pool_indices = pool_indices["valence_positive"].to(config.device)
+        self._valence_negative_pool_indices = pool_indices["valence_negative"].to(config.device)
         self._tokens = tokens
         self._config = config
 
@@ -96,23 +103,45 @@ class ReadingSession:
     def _current_external_input(self, word_index: int, book_finished: bool) -> torch.Tensor:
         """Return this tick's injected current: the active word's projection, held for its
         entire ticks_per_word window (not just its first tick) so the signal has enough
-        sustained drive to propagate through several synaptic hops before decaying away."""
+        sustained drive to propagate through several synaptic hops before decaying away.
+
+        Combines two independent channels: generic per-token noise into the sensory
+        pool (texture only, no sentiment), and the word's real sentiment actively
+        exciting the matching dopaminergic valence pool (positive words excite
+        valence_positive, negative words excite valence_negative, neutral words excite
+        neither) — see text_encoder.project_valence_to_currents for why both valence
+        directions need to be actively excitatory rather than one side just being
+        "less input"."""
         if book_finished:
             return torch.zeros(self._neuron_count, device=self._config.device)
 
-        token_currents = project_token_to_currents(
-            self._tokens[word_index],
-            len(self._sensory_pool_indices),
-            self._config.input_current_scale,
-            self._config.token_seed,
-            self._config.valence_weight,
+        token = self._tokens[word_index]
+
+        sensory_currents = project_token_to_currents(
+            token, len(self._sensory_pool_indices), self._config.input_current_scale, self._config.token_seed
         )
-        return inject_currents_at_indices(
+        external_input = inject_currents_at_indices(
             self._neuron_count,
             self._sensory_pool_indices,
-            torch.as_tensor(token_currents, dtype=torch.float32),
+            torch.as_tensor(sensory_currents, dtype=torch.float32),
             self._config.device,
         )
+
+        for valence_pool_indices, channel in (
+            (self._valence_positive_pool_indices, "positive"),
+            (self._valence_negative_pool_indices, "negative"),
+        ):
+            valence_currents = project_valence_to_currents(
+                token, len(valence_pool_indices), self._config.input_current_scale, self._config.valence_weight, channel
+            )
+            external_input = external_input + inject_currents_at_indices(
+                self._neuron_count,
+                valence_pool_indices,
+                torch.as_tensor(valence_currents, dtype=torch.float32),
+                self._config.device,
+            )
+
+        return external_input
 
     def _update_emotions(self, spikes: torch.Tensor) -> tuple[dict[str, float], float, dict[str, float]]:
         """Roll pool spike rates forward and derive this tick's emotions, rating and activity."""

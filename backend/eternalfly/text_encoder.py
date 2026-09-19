@@ -12,11 +12,7 @@ from bs4 import BeautifulSoup
 from eternalfly.sentiment_lexicon import word_valence
 
 # Half-width of the per-neuron random noise added to every token's currents (see
-# project_token_to_currents). Calibrated low on purpose: at the original 0.5, noise
-# from the many sentiment-neutral words in real prose drowned out the signal from the
-# few words that actually carry sentiment (scripts/calibrate_sentiment.py showed the
-# rating tracking real text's sentiment only inconsistently); 0.15 keeps just enough
-# per-token texture for pool diversity while letting the valence offset dominate.
+# project_token_to_currents) — purely a texture/diversity signal, carries no sentiment.
 NOISE_HALF_WIDTH = 0.15
 
 
@@ -29,34 +25,41 @@ def tokenize_text(raw_text: str) -> list[str]:
     return [token for token in stripped_tokens if token != ""]
 
 
-def project_token_to_currents(
-    token: str, pool_size: int, current_scale: float, seed: int, valence_weight: float
-) -> numpy.ndarray:
+def project_token_to_currents(token: str, pool_size: int, current_scale: float, seed: int) -> numpy.ndarray:
     """Deterministically project a single token onto a pool_size-length array of
-    injected currents for the sensory-input-pool neurons, reproducible across separate
-    process runs given the same (token, pool_size, current_scale, seed, valence_weight).
-
-    Each neuron gets zero-mean noise (unique per token, for texture/diversity across
-    the pool) plus a shared offset from the token's real sentiment valence (see
-    sentiment_lexicon.word_valence), so the network receives a signal correlated with
-    word meaning instead of pure noise. valence_weight controls how strongly valence
-    shifts the mean relative to the noise spread (NOISE_HALF_WIDTH * 2 wide).
-
-    The offset is *negated* relative to word_valence's own sign: calibrating against
-    the real FlyWire connectome (see scripts/calibrate_sentiment.py results) showed
-    that *more* sensory-pool drive consistently produces *lower* ratings in this
-    network's fixed wiring (i.e. stronger stimulation reads as more aversive here, not
-    more rewarding) — so positive-valence words need a *lower*-than-baseline current to
-    end up rated positively, and vice versa. This is an empirically-measured property
-    of this specific connectome, not an assumption."""
+    zero-mean noise currents for the sensory-input pool (unique per token, giving each
+    word its own texture across the pool), reproducible across separate process runs
+    given the same (token, pool_size, current_scale, seed). Carries no sentiment — see
+    project_valence_to_currents for that."""
     if not isinstance(pool_size, int) or pool_size <= 0:
         raise ValueError("pool_size must be a positive integer")
     token_digest = hashlib.sha256(f"{token}:{seed}".encode()).hexdigest()
     deterministic_seed = int(token_digest, 16) % (2**32)
     random_generator = numpy.random.default_rng(deterministic_seed)
-    zero_mean_noise = random_generator.uniform(-NOISE_HALF_WIDTH, NOISE_HALF_WIDTH, size=pool_size)
-    valence_offset = -word_valence(token) * valence_weight
-    return (zero_mean_noise + valence_offset) * current_scale
+    return random_generator.uniform(-NOISE_HALF_WIDTH, NOISE_HALF_WIDTH, size=pool_size) * current_scale
+
+
+def project_valence_to_currents(
+    token: str, pool_size: int, current_scale: float, valence_weight: float, channel: str
+) -> numpy.ndarray:
+    """Return a pool_size-length array of purely excitatory (non-negative) currents for
+    one dopaminergic valence channel — "positive" (real reward-coding neurons, the
+    mushroom body medial-lobe/PAM-like pool) or "negative" (real punishment-coding
+    neurons, the vertical-lobe/PPL1-like pool) — proportional to how strongly token's
+    real sentiment (sentiment_lexicon.word_valence) matches that channel.
+
+    A positive word excites only the "positive" channel and a negative word excites
+    only the "negative" channel; a word of the opposite sentiment, or a neutral/
+    unscored word, contributes zero current here (never a *negative*/suppressive
+    current — unlike the old single-channel design, both valence directions are always
+    an active, excitatory signal, so neither can be silently overridden by whatever the
+    network happened to be doing already). Raises ValueError for any other channel."""
+    if channel not in ("positive", "negative"):
+        raise ValueError(f"channel must be 'positive' or 'negative', got {channel!r}")
+    valence = word_valence(token)
+    magnitude = max(0.0, valence if channel == "positive" else -valence)
+    current_value = magnitude * valence_weight * current_scale
+    return numpy.full(pool_size, current_value, dtype=numpy.float64)
 
 
 def extract_epub_text(epub_path: pathlib.Path) -> str:

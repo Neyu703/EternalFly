@@ -11,6 +11,7 @@ from eternalfly.connectome import build_signed_adjacency, select_pool_by_activit
 from eternalfly.data_prep import (
     aggregate_connections_by_neuron_pair,
     aggregate_neuron_activity_by_neuropil,
+    aggregate_neurotransmitter_by_neuron,
     build_neuron_index,
     dominant_neurotransmitter_labels,
     filter_ids_to_known_set,
@@ -32,6 +33,17 @@ POOL_NEUROPILS = {
     "arousal": ["EB", "FB"],
 }
 POOL_TOP_FRACTION = 0.05
+
+# The medial mushroom body lobe is real Drosophila's reward-learning compartment
+# (PAM cluster dopaminergic input); the vertical lobe is the punishment-learning
+# compartment (PPL1 cluster). Reusing approach/avoidance's neuropils here, but this
+# time picking out the real dopaminergic (not just "active") presynaptic neurons that
+# broadcast into them, for a genuine, actively-excitatory reward/punishment channel
+# (see reading_session.py's use of these pools, and text_encoder.project_valence_to_currents).
+VALENCE_DOPAMINERGIC_NEUROPILS = {
+    "valence_positive": POOL_NEUROPILS["approach"],
+    "valence_negative": POOL_NEUROPILS["avoidance"],
+}
 
 
 def build_pool_indices(
@@ -55,8 +67,43 @@ def build_pool_indices(
     return pool_indices
 
 
+def build_dopaminergic_valence_pool_indices(
+    connections_table,
+    pre_neuropil_table,
+    root_ids: numpy.ndarray,
+    neuron_id_to_index: dict[int, int],
+    valence_neuropils: dict[str, list[str]],
+) -> dict[str, numpy.ndarray]:
+    """Select each valence pool's neuron indices: proofread presynaptic neurons whose
+    own dominant neurotransmitter is dopamine, restricted to those synapsing into that
+    pool's target neuropils. Unlike build_pool_indices, keeps every matching neuron
+    rather than a top-activity fraction — being real, dopamine-dominant presynaptic
+    partners of that specific compartment is already a strong, biologically-motivated
+    filter (a few hundred neurons here, not the thousands build_pool_indices narrows
+    down from)."""
+    per_neuron_nt_table = aggregate_neurotransmitter_by_neuron(connections_table, "pre_pt_root_id")
+    neuron_nt_labels = dominant_neurotransmitter_labels(per_neuron_nt_table)
+    dopaminergic_neuron_ids = per_neuron_nt_table["pre_pt_root_id"].to_numpy()[neuron_nt_labels == "da"]
+
+    pool_indices = {}
+    for pool_name, target_neuropils in valence_neuropils.items():
+        candidate_ids, candidate_counts = aggregate_neuron_activity_by_neuropil(
+            pre_neuropil_table, target_neuropils, "pre_pt_root_id"
+        )
+        is_dopaminergic = numpy.isin(
+            candidate_ids.astype(numpy.int64), dopaminergic_neuron_ids.astype(numpy.int64)
+        )
+        dopaminergic_candidate_ids = candidate_ids[is_dopaminergic]
+        dopaminergic_candidate_counts = candidate_counts[is_dopaminergic]
+        known_ids, _known_counts = filter_ids_to_known_set(
+            dopaminergic_candidate_ids, dopaminergic_candidate_counts, root_ids
+        )
+        pool_indices[pool_name] = numpy.array([neuron_id_to_index[int(neuron_id)] for neuron_id in known_ids])
+    return pool_indices
+
+
 def main() -> None:
-    """Build and cache the signed adjacency matrix and the four neuron pools."""
+    """Build and cache the signed adjacency matrix and the neuron pools."""
     CACHE_DIR.mkdir(exist_ok=True)
 
     root_ids = load_root_ids(DATA_DIR / "proofread_root_ids_783.npy")
@@ -79,8 +126,15 @@ def main() -> None:
     print("saved adjacency:", adjacency_matrix.shape, "nnz:", adjacency_matrix.nnz)
 
     post_neuropil_table = load_feather_table(DATA_DIR / "per_neuron_neuropil_count_post_783.feather")
-
     pool_indices = build_pool_indices(post_neuropil_table, root_ids, neuron_id_to_index, POOL_NEUROPILS)
+
+    pre_neuropil_table = load_feather_table(DATA_DIR / "per_neuron_neuropil_count_pre_783.feather")
+    pool_indices.update(
+        build_dopaminergic_valence_pool_indices(
+            connections_table, pre_neuropil_table, root_ids, neuron_id_to_index, VALENCE_DOPAMINERGIC_NEUROPILS
+        )
+    )
+
     numpy.savez(CACHE_DIR / "pool_indices.npz", **pool_indices)
     for pool_name, indices in pool_indices.items():
         print(f"pool {pool_name}: {len(indices)} neurons")

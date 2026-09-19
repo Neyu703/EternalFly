@@ -8,6 +8,7 @@ import pyarrow.compute
 import pyarrow.feather
 
 NEUROTRANSMITTER_COLUMN_ORDER = ["ach", "gaba", "glut", "da", "oct", "ser"]
+NEUROTRANSMITTER_PROBABILITY_COLUMNS = ["gaba_avg", "ach_avg", "glut_avg", "oct_avg", "ser_avg", "da_avg"]
 
 
 def load_root_ids(path: pathlib.Path) -> numpy.ndarray:
@@ -20,16 +21,12 @@ def load_feather_table(path: pathlib.Path) -> pyarrow.Table:
     return pyarrow.feather.read_table(path)
 
 
-def aggregate_connections_by_neuron_pair(connections_table: pyarrow.Table) -> pyarrow.Table:
-    """Collapse per-(pre, post, neuropil) rows into per-(pre, post) neuron-pair rows.
-
-    Sums syn_count across neuropils for the same pair, and computes each neurotransmitter
-    probability column as the syn_count-weighted average across that pair's neuropil rows.
-    """
-    neurotransmitter_column_names = ["gaba_avg", "ach_avg", "glut_avg", "oct_avg", "ser_avg", "da_avg"]
-
+def _aggregate_weighted_neurotransmitters(connections_table: pyarrow.Table, group_by_columns: list[str]) -> pyarrow.Table:
+    """Collapse connections_table rows into one row per unique combination of
+    group_by_columns, summing syn_count and computing each neurotransmitter
+    probability column as the syn_count-weighted average across the collapsed rows."""
     weighted_columns_table = connections_table
-    for column_name in neurotransmitter_column_names:
+    for column_name in NEUROTRANSMITTER_PROBABILITY_COLUMNS:
         weighted_columns_table = weighted_columns_table.append_column(
             f"{column_name}_weighted",
             pyarrow.compute.multiply(
@@ -38,24 +35,40 @@ def aggregate_connections_by_neuron_pair(connections_table: pyarrow.Table) -> py
         )
 
     aggregations = [("syn_count", "sum")] + [
-        (f"{column_name}_weighted", "sum") for column_name in neurotransmitter_column_names
+        (f"{column_name}_weighted", "sum") for column_name in NEUROTRANSMITTER_PROBABILITY_COLUMNS
     ]
-    grouped_table = weighted_columns_table.group_by(
-        ["pre_pt_root_id", "post_pt_root_id"]
-    ).aggregate(aggregations)
+    grouped_table = weighted_columns_table.group_by(group_by_columns).aggregate(aggregations)
 
     summed_syn_count = grouped_table["syn_count_sum"]
-    result_columns = {
-        "pre_pt_root_id": grouped_table["pre_pt_root_id"],
-        "post_pt_root_id": grouped_table["post_pt_root_id"],
-        "syn_count": summed_syn_count,
-    }
-    for column_name in neurotransmitter_column_names:
+    result_columns = {column_name: grouped_table[column_name] for column_name in group_by_columns}
+    result_columns["syn_count"] = summed_syn_count
+    for column_name in NEUROTRANSMITTER_PROBABILITY_COLUMNS:
         result_columns[column_name] = pyarrow.compute.divide(
             grouped_table[f"{column_name}_weighted_sum"], summed_syn_count
         )
 
     return pyarrow.table(result_columns)
+
+
+def aggregate_connections_by_neuron_pair(connections_table: pyarrow.Table) -> pyarrow.Table:
+    """Collapse per-(pre, post, neuropil) rows into per-(pre, post) neuron-pair rows.
+
+    Sums syn_count across neuropils for the same pair, and computes each neurotransmitter
+    probability column as the syn_count-weighted average across that pair's neuropil rows.
+    """
+    return _aggregate_weighted_neurotransmitters(connections_table, ["pre_pt_root_id", "post_pt_root_id"])
+
+
+def aggregate_neurotransmitter_by_neuron(connections_table: pyarrow.Table, id_column_name: str) -> pyarrow.Table:
+    """Collapse connections_table rows into one row per neuron (identified by
+    id_column_name, e.g. "pre_pt_root_id" to aggregate by presynaptic neuron), with
+    each neurotransmitter probability column as the syn_count-weighted average across
+    all of that neuron's connections (across every post-partner and neuropil).
+
+    Used to classify a neuron's own dominant neurotransmitter (via
+    dominant_neurotransmitter_labels on the result), as opposed to
+    aggregate_connections_by_neuron_pair's per-connection classification."""
+    return _aggregate_weighted_neurotransmitters(connections_table, [id_column_name])
 
 
 def dominant_neurotransmitter_labels(aggregated_table: pyarrow.Table) -> numpy.ndarray:
