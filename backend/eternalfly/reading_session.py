@@ -42,6 +42,7 @@ class TickResult:
     region_activity: dict[str, float]
     neuropil_activity: dict[str, float]
     wants_new_book: bool
+    book_finished: bool = False
 
 
 class ReadingSession:
@@ -75,6 +76,9 @@ class ReadingSession:
         self._state: LIFState = create_initial_state(neuron_count, device=config.device)
         self._previous_spikes = torch.zeros(neuron_count, device=config.device)
         self._tick_number = 0
+        self._is_paused = False
+        self._speed_multiplier = 1.0
+        self._last_tick_result: TickResult | None = None
 
         self._approach_rate_average = RollingAverage(config.engagement_window_size)
         self._avoidance_rate_average = RollingAverage(config.engagement_window_size)
@@ -144,9 +148,34 @@ class ReadingSession:
         self._tokens = tokens
         self._tick_number = 0
 
+    def restart(self) -> None:
+        """Restart the current book from its first word, keeping its tokens and the
+        simulated brain's ongoing LIF/engagement state intact."""
+        self._tick_number = 0
+
+    def set_paused(self, paused: bool) -> None:
+        """Pause or resume tick() advancing the simulation. While paused, tick() keeps
+        returning the last computed TickResult instead of stepping the network."""
+        self._is_paused = paused
+
+    def set_speed_multiplier(self, multiplier: float) -> None:
+        """Set how many effective ticks make up one word: higher values read faster.
+        Raises ValueError if multiplier is not positive."""
+        if multiplier <= 0:
+            raise ValueError(f"speed multiplier must be positive, got {multiplier}")
+        self._speed_multiplier = multiplier
+
+    def _effective_ticks_per_word(self) -> int:
+        """Return ticks_per_word scaled down by the current speed multiplier, never below 1."""
+        return max(1, round(self._config.ticks_per_word / self._speed_multiplier))
+
     def tick(self) -> TickResult:
-        """Advance the session by one simulation tick and return its observable result."""
-        word_index = word_index_for_tick(self._tick_number, self._config.ticks_per_word)
+        """Advance the session by one simulation tick and return its observable result.
+        While paused, returns the last result unchanged instead of advancing."""
+        if self._is_paused and self._last_tick_result is not None:
+            return self._last_tick_result
+
+        word_index = word_index_for_tick(self._tick_number, self._effective_ticks_per_word())
         book_finished = word_index >= len(self._tokens)
         current_word = None if book_finished else self._tokens[word_index]
 
@@ -164,7 +193,7 @@ class ReadingSession:
         words_read = len(self._tokens) if book_finished else word_index + 1
         self._tick_number += 1
 
-        return TickResult(
+        tick_result = TickResult(
             current_word=current_word,
             page_progress=page_progress,
             words_read=words_read,
@@ -174,4 +203,7 @@ class ReadingSession:
             region_activity=region_activity,
             neuropil_activity=neuropil_activity,
             wants_new_book=wants_new_book,
+            book_finished=book_finished,
         )
+        self._last_tick_result = tick_result
+        return tick_result
