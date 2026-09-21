@@ -99,6 +99,12 @@
   white-space: nowrap;
 }
 
+.neural-activity-sparkline-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .neural-activity-chart-caption {
   display: flex;
   justify-content: space-between;
@@ -110,6 +116,6 @@
 
 .neural-activity-sparkline {
   width: 100%;
-  height: 46px;
+  height: 28px;
   display: block;
 }

@@ -6,19 +6,25 @@ import * as THREE from "three";
 /** Live activity per neuropil region, keyed the same as the region mesh node names (0..1 firing rate). */
 export type NeuropilActivity = Record<string, number>;
 
-const IDLE_BRIGHTNESS = 0.35;
-// Real per-region spike rates from the simulation are small fractions (roughly 0-0.15),
-// much smaller than the mock feed's synthetic 0..1 range, so this needs a much larger
-// multiplier to produce a visible brightness swing with real data.
-const ACTIVE_BRIGHTNESS = 8.0;
+// Real per-region spike rates from the simulation are small fractions of their nominal
+// 0..1 range even for a genuinely very active region (measured against the real cached
+// connectome, see backend/scripts/calibrate_sentiment.py) - this is the raw rate that
+// counts as "fully active" for glow purposes; values beyond it just clamp at 1.0.
+const NEUROPIL_ACTIVITY_CEILING = 0.08;
+
+const IDLE_SATURATION = 0.5; // how muted a quiet region's color is, as a fraction of its true baked saturation
+const IDLE_OPACITY = 0.4;
+const ACTIVE_OPACITY = 0.95;
+const ACTIVE_LIGHTNESS_BOOST = 0.18; // how much brighter (whiter) a fully active region's color gets, on top of full saturation
 
 /**
  * A translucent 3D brain outline (real FlyWire FAFB template mesh) with the real, anatomically
  * colored neuropil region meshes inside it (optic lobes red/orange, central complex blue,
  * mushroom body yellow/green, ...). Each region's own base color (baked in server-side, see
- * backend/scripts/extract_brain_geometry.py) is read directly off its mesh and used as its glow
- * color, so quiet regions stay dim and firing regions light up brightly in their real hue.
- * Without live `activity`, regions gently pulse on their own so the page still reads as "alive".
+ * backend/scripts/extract_brain_geometry.py) is read directly off its mesh; regions stay a
+ * muted, translucent version of that hue at rest so deeper regions remain visible through the
+ * ones in front, then pop to their full saturated color and opacity as they fire. Without live
+ * `activity`, regions gently pulse on their own so the page still reads as "alive".
  */
 export function BrainGlow({ activity }: { activity?: NeuropilActivity }) {
   const { scene: brainScene } = useGLTF("/models/brain-outline.glb");
@@ -50,13 +56,18 @@ export function BrainGlow({ activity }: { activity?: NeuropilActivity }) {
     regionsScene.traverse((child) => {
       if (!(child instanceof THREE.Mesh)) return;
       const baseColor = readBaseVertexColor(child);
-      child.userData.baseColor = baseColor;
-      // Unlit material: the region's own color drives brightness directly, untouched by
-      // scene lighting, so quiet regions stay a dim true hue instead of being washed pale.
+      child.userData.baseHsl = baseColor.getHSL({ h: 0, s: 0, l: 0 });
+      // Unlit, semi-transparent material: the region's own hue drives saturation/lightness
+      // directly, untouched by scene lighting, and stays translucent at rest so regions
+      // nested deeper inside the brain remain visible through the ones in front of them.
       child.material = new THREE.MeshBasicMaterial({
-        color: baseColor.clone().multiplyScalar(IDLE_BRIGHTNESS),
+        transparent: true,
+        opacity: IDLE_OPACITY,
+        depthWrite: false,
+        side: THREE.DoubleSide,
         toneMapped: false,
       });
+      applyRegionAppearance(child.material as THREE.MeshBasicMaterial, child.userData.baseHsl, 0);
       foundMeshes[child.name] = child;
     });
     regionMeshes.current = foundMeshes;
@@ -65,14 +76,14 @@ export function BrainGlow({ activity }: { activity?: NeuropilActivity }) {
   useFrame(({ clock }) => {
     for (const [regionName, mesh] of Object.entries(regionMeshes.current)) {
       const liveActivity = activity?.[regionName];
-      const intensity =
-        liveActivity ??
-        IDLE_BRIGHTNESS + Math.max(0, Math.sin(clock.elapsedTime * 1.5 + hashPhase(regionName))) * 0.3;
-      const baseColor = mesh.userData.baseColor as THREE.Color | undefined;
+      const normalizedActivity =
+        liveActivity !== undefined
+          ? Math.max(0, Math.min(1, liveActivity / NEUROPIL_ACTIVITY_CEILING))
+          : Math.max(0, Math.sin(clock.elapsedTime * 1.5 + hashPhase(regionName))) * 0.5;
+      const baseHsl = mesh.userData.baseHsl as { h: number; s: number; l: number } | undefined;
       const material = mesh.material as THREE.MeshBasicMaterial;
-      if (!baseColor || !material) continue;
-      const brightness = IDLE_BRIGHTNESS + Math.max(0, intensity) * ACTIVE_BRIGHTNESS;
-      material.color.copy(baseColor).multiplyScalar(brightness);
+      if (!baseHsl || !material) continue;
+      applyRegionAppearance(material, baseHsl, normalizedActivity);
     }
   });
 
@@ -82,6 +93,24 @@ export function BrainGlow({ activity }: { activity?: NeuropilActivity }) {
       <primitive object={regionsScene} />
     </group>
   );
+}
+
+function lerp(from: number, to: number, fraction: number): number {
+  return from + (to - from) * fraction;
+}
+
+/** Sets a region's material color/opacity for a given 0..1 normalizedActivity: muted,
+ * translucent at rest (IDLE_SATURATION/IDLE_OPACITY) rising to the region's full true
+ * hue plus a lightness pop at full activity (ACTIVE_OPACITY/ACTIVE_LIGHTNESS_BOOST). */
+function applyRegionAppearance(
+  material: THREE.MeshBasicMaterial,
+  baseHsl: { h: number; s: number; l: number },
+  normalizedActivity: number,
+): void {
+  const saturation = lerp(baseHsl.s * IDLE_SATURATION, baseHsl.s, normalizedActivity);
+  const lightness = lerp(baseHsl.l, Math.min(1, baseHsl.l + ACTIVE_LIGHTNESS_BOOST), normalizedActivity);
+  material.color.setHSL(baseHsl.h, saturation, lightness);
+  material.opacity = lerp(IDLE_OPACITY, ACTIVE_OPACITY, normalizedActivity);
 }
 
 /** Reads a mesh's uniform per-vertex color (baked server-side, same value on every vertex). */

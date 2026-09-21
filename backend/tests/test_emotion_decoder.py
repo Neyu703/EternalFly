@@ -104,10 +104,19 @@ def test_compute_emotions_at_joy_target_gives_joy_intensity_of_exactly_one():
     assert emotions["joy"] == pytest.approx(1.0)
 
 
+def test_compute_emotions_at_a_target_suppresses_the_opposite_valence_emotion():
+    # Regression guard: a linear (rather than sharply-falling-off) distance falloff left
+    # every emotion, including opposite-valence ones, sitting at a similar mid-level
+    # intensity regardless of how far its own target actually was.
+    emotions = compute_emotions(valence=1.0, arousal=0.6)  # exactly the joy target
+    assert emotions["joy"] == pytest.approx(1.0)
+    assert emotions["disgust"] < 0.05  # disgust's target (-1.0, 0.5) is the opposite valence
+
+
 def test_compute_emotions_far_from_all_targets_gives_nonnegative_low_intensities():
     emotions = compute_emotions(valence=10.0, arousal=10.0)
     for emotion_intensity in emotions.values():
-        assert emotion_intensity == 0.0
+        assert 0.0 <= emotion_intensity < 1e-10
 
 
 def test_compute_emotions_returns_dict_with_exactly_the_eight_plutchik_keys():

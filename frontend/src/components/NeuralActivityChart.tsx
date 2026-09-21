@@ -4,7 +4,7 @@ import "./NeuralActivityChart.css";
 
 const HISTORY_LENGTH = 80;
 const CHART_WIDTH = 300;
-const CHART_HEIGHT = 46;
+const CHART_HEIGHT = 28;
 
 /** Mean spiking rate across the fly's tracked brain regions this tick (0..1), preferring
  * the fine-grained per-neuropil breakdown and falling back to the coarser approach/
@@ -16,14 +16,14 @@ function overallFiringRate(tick: TickData): number {
   return rates.reduce((sum, rate) => sum + rate, 0) / rates.length;
 }
 
-/** Builds an SVG polyline's `points` attribute from a firing-rate history, scaling the
- * y-axis to the history's own peak so the trend stays visible at any activity level. */
-function buildSparklinePoints(firingRateHistory: number[], peakRate: number): string {
-  if (firingRateHistory.length === 0) return "";
-  return firingRateHistory
-    .map((rate, index) => {
-      const x = (index / Math.max(firingRateHistory.length - 1, 1)) * CHART_WIDTH;
-      const y = CHART_HEIGHT - (rate / peakRate) * CHART_HEIGHT;
+/** Builds an SVG polyline's `points` attribute from a value history, scaling the y-axis
+ * against maxValue (either a fixed domain ceiling or the history's own peak). */
+function buildSparklinePoints(history: number[], maxValue: number): string {
+  if (history.length === 0) return "";
+  return history
+    .map((value, index) => {
+      const x = (index / Math.max(history.length - 1, 1)) * CHART_WIDTH;
+      const y = CHART_HEIGHT - (value / maxValue) * CHART_HEIGHT;
       return `${x.toFixed(1)},${y.toFixed(1)}`;
     })
     .join(" ");
@@ -33,25 +33,67 @@ function formatPercent(fraction: number): string {
   return `${Math.round(fraction * 100)}%`;
 }
 
+/** One small labeled sparkline: a value history plotted against either a fixed domain
+ * (maxValue) or, when maxValue is omitted, the history's own observed peak. */
+function Sparkline({
+  label,
+  history,
+  maxValue,
+  color,
+  formatDomain,
+}: {
+  label: string;
+  history: number[];
+  maxValue?: number;
+  color: string;
+  formatDomain: (value: number) => string;
+}) {
+  const peak = maxValue ?? Math.max(...history, 0.0001);
+  const points = buildSparklinePoints(history, peak);
+  const latestPoint = points.split(" ").at(-1)?.split(",").map(Number);
+  return (
+    <div className="neural-activity-sparkline-block">
+      <div className="neural-activity-chart-caption">
+        <span>{label}</span>
+        <span>
+          0–{formatDomain(peak)} {maxValue === undefined && "· auto-scale"}
+        </span>
+      </div>
+      <svg
+        className="neural-activity-sparkline"
+        viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
+        preserveAspectRatio="none"
+      >
+        <polyline points={points} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        {latestPoint && <circle cx={latestPoint[0]} cy={latestPoint[1]} r="2.5" fill={color} />}
+      </svg>
+    </div>
+  );
+}
+
 /** Live-updating status card: the fly's current dopamine rating, overall firing rate and
- * arousal, plus a rolling sparkline of firing rate over the last HISTORY_LENGTH ticks
- * (~4s at the default tick rate), auto-scaled to whatever peak that window has seen. */
+ * arousal, each with its own rolling sparkline over the last HISTORY_LENGTH ticks (~4s
+ * at the default tick rate). Dopamine and arousal plot against their real fixed 0-10 /
+ * 0-100% domain (they're already calibrated to it, see emotion_decoder.py), while firing
+ * rate auto-scales to its own observed peak since it isn't ceiling-normalized. */
 export function NeuralActivityChart({ tick }: { tick: TickData }) {
   const [firingRateHistory, setFiringRateHistory] = useState<number[]>([]);
+  const [ratingHistory, setRatingHistory] = useState<number[]>([]);
+  const [arousalHistory, setArousalHistory] = useState<number[]>([]);
 
   useEffect(() => {
-    setFiringRateHistory((previousHistory) => {
-      const nextHistory = [...previousHistory, overallFiringRate(tick)];
+    const pushCapped = (previousHistory: number[], value: number): number[] => {
+      const nextHistory = [...previousHistory, value];
       return nextHistory.length > HISTORY_LENGTH ? nextHistory.slice(-HISTORY_LENGTH) : nextHistory;
-    });
+    };
+    setFiringRateHistory((previousHistory) => pushCapped(previousHistory, overallFiringRate(tick)));
+    setRatingHistory((previousHistory) => pushCapped(previousHistory, tick.rating0To10));
+    setArousalHistory((previousHistory) => pushCapped(previousHistory, tick.regionActivity.arousal ?? 0));
   }, [tick]);
 
   const currentFiringRate = firingRateHistory[firingRateHistory.length - 1] ?? 0;
   const arousal = tick.regionActivity.arousal ?? 0;
   const trackedRegionCount = Object.keys(tick.neuropilActivity).length;
-  const peakFiringRate = Math.max(...firingRateHistory, 0.01);
-  const sparklinePoints = buildSparklinePoints(firingRateHistory, peakFiringRate);
-  const latestPoint = sparklinePoints.split(" ").at(-1)?.split(",").map(Number);
 
   return (
     <div className="neural-activity-panel">
@@ -86,25 +128,9 @@ export function NeuralActivityChart({ tick }: { tick: TickData }) {
         </div>
       </div>
 
-      <div className="neural-activity-chart-caption">
-        <span>Feuerrate-Verlauf</span>
-        <span>0–{formatPercent(peakFiringRate)} · auto-scale</span>
-      </div>
-      <svg
-        className="neural-activity-sparkline"
-        viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
-        preserveAspectRatio="none"
-      >
-        <polyline
-          points={sparklinePoints}
-          fill="none"
-          stroke="#c3e86b"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        {latestPoint && <circle cx={latestPoint[0]} cy={latestPoint[1]} r="2.5" fill="#c3e86b" />}
-      </svg>
+      <Sparkline label="Dopamin-Verlauf" history={ratingHistory} maxValue={10} color="#ffd166" formatDomain={(value) => value.toFixed(0)} />
+      <Sparkline label="Erregung-Verlauf" history={arousalHistory} maxValue={1} color="#ef476f" formatDomain={formatPercent} />
+      <Sparkline label="Feuerrate-Verlauf" history={firingRateHistory} color="#7fd4ff" formatDomain={formatPercent} />
     </div>
   );
 }

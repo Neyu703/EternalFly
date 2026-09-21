@@ -13,7 +13,11 @@ EMOTION_TARGETS = {
     "anger": (-0.7, 0.9),
     "anticipation": (0.5, 0.6),
 }
-DISTANCE_NORMALIZER = 2.5
+# Controls how sharply intensity drops off with distance from an emotion's target in the
+# Gaussian falloff below. Calibrated so a point clearly closest to one or two targets
+# lights mostly those up, instead of all eight targets (which cluster within about a
+# unit of each other) sitting at a similar mid-level intensity simultaneously.
+EMOTION_FALLOFF_SIGMA = 0.45
 
 
 class RollingAverage:
@@ -76,11 +80,14 @@ def pool_rates_to_valence_arousal(
 
 def compute_emotions(valence: float, arousal: float) -> dict[str, float]:
     """Map a (valence, arousal) coordinate to intensities for all 8 Plutchik primary
-    emotions, based on Euclidean distance to each emotion's fixed target coordinate."""
+    emotions, using a Gaussian falloff from each emotion's fixed target coordinate (see
+    EMOTION_FALLOFF_SIGMA) instead of a linear one, so only the target(s) actually close
+    to the current coordinate light up rather than every emotion reading a similar
+    mid-level intensity regardless of distance."""
     emotion_intensities = {}
     for emotion_name, (target_valence, target_arousal) in EMOTION_TARGETS.items():
         distance_to_target = math.hypot(valence - target_valence, arousal - target_arousal)
-        emotion_intensities[emotion_name] = max(0.0, 1.0 - distance_to_target / DISTANCE_NORMALIZER)
+        emotion_intensities[emotion_name] = math.exp(-(distance_to_target**2) / (2 * EMOTION_FALLOFF_SIGMA**2))
     return emotion_intensities
 
 
