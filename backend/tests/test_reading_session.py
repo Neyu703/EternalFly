@@ -39,6 +39,9 @@ def _make_config(**overrides) -> ReadingSessionConfig:
         engagement_threshold=0.3,
         min_ticks_before_boredom_check=3,
         display_window_size=3,
+        positive_valence_ceiling=1.0,
+        negative_valence_ceiling=1.0,
+        arousal_ceiling=1.0,
         device="cpu",
     )
     defaults.update(overrides)
@@ -94,7 +97,7 @@ def test_tick_computes_emotions_and_rating_from_zero_pool_activity():
 
     tick_result = session.tick()
 
-    expected_valence, expected_arousal = pool_rates_to_valence_arousal(0.0, 0.0, 0.0)
+    expected_valence, expected_arousal = pool_rates_to_valence_arousal(0.0, 0.0, 0.0, 1.0, 1.0, 1.0)
     expected_emotions = compute_emotions(expected_valence, expected_arousal)
     expected_rating = compute_rating(expected_valence)
 

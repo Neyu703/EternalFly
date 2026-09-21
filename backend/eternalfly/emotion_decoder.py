@@ -43,12 +43,34 @@ class RollingAverage:
 
 
 def pool_rates_to_valence_arousal(
-    approach_pool_rate: float, avoidance_pool_rate: float, arousal_pool_rate: float
+    approach_pool_rate: float,
+    avoidance_pool_rate: float,
+    arousal_pool_rate: float,
+    positive_valence_ceiling: float,
+    negative_valence_ceiling: float,
+    arousal_ceiling: float,
 ) -> tuple[float, float]:
     """Convert approach/avoidance/arousal pool firing rates into a (valence, arousal)
-    coordinate pair. Unclamped: callers are expected to pass already-normalized rates."""
-    valence = approach_pool_rate - avoidance_pool_rate
-    arousal = arousal_pool_rate
+    coordinate pair, rescaled to [-1.0, 1.0] / [0.0, 1.0] against the network's own
+    calibrated ceilings (see scripts/calibrate_sentiment.py) rather than the raw pool
+    rates directly.
+
+    The raw approach-minus-avoidance difference and raw arousal-pool rate only ever
+    span a tiny sliver of their nominal range even under maximally extreme input (the
+    dopaminergic/octopaminergic pools are a few hundred neurons out of ~139k, with
+    spike rates bounded well under 1.0), so feeding them unscaled into compute_rating/
+    compute_emotions makes the display barely move. positive_valence_ceiling and
+    negative_valence_ceiling (both non-negative magnitudes) are the raw
+    approach-minus-avoidance value that should map to +1.0 / -1.0 respectively (the
+    positive and negative dopaminergic pools differ in size, so their ceilings differ
+    too); arousal_ceiling is the raw arousal_pool_rate that should map to 1.0. Values
+    beyond a ceiling clamp to +-1.0 / 1.0 rather than exceeding it."""
+    raw_valence = approach_pool_rate - avoidance_pool_rate
+    if raw_valence >= 0:
+        valence = min(1.0, raw_valence / positive_valence_ceiling) if positive_valence_ceiling > 0 else 0.0
+    else:
+        valence = max(-1.0, raw_valence / negative_valence_ceiling) if negative_valence_ceiling > 0 else 0.0
+    arousal = max(0.0, min(1.0, arousal_pool_rate / arousal_ceiling)) if arousal_ceiling > 0 else 0.0
     return (valence, arousal)
 
 

@@ -29,6 +29,9 @@ class ReadingSessionConfig:
     engagement_threshold: float
     min_ticks_before_boredom_check: int
     display_window_size: int  # short window for the live-displayed rating/emotions/region_activity, separate from engagement_window_size's long-run boredom judgment
+    positive_valence_ceiling: float  # raw approach-minus-avoidance rate that maps to valence +1.0, see emotion_decoder.pool_rates_to_valence_arousal
+    negative_valence_ceiling: float  # raw avoidance-minus-approach rate that maps to valence -1.0
+    arousal_ceiling: float  # raw arousal-pool rate that maps to arousal 1.0
     device: str = "cpu"
 
 
@@ -179,16 +182,32 @@ class ReadingSession:
             "arousal": compute_pool_spike_rate(spikes, self._arousal_pool_indices),
         }
 
+    def _pool_rates_to_valence_arousal(self, approach_rate: float, avoidance_rate: float, arousal_rate: float) -> tuple[float, float]:
+        """Convenience wrapper binding this session's calibrated ceilings (see
+        ReadingSessionConfig) to emotion_decoder.pool_rates_to_valence_arousal."""
+        return pool_rates_to_valence_arousal(
+            approach_rate,
+            avoidance_rate,
+            arousal_rate,
+            self._config.positive_valence_ceiling,
+            self._config.negative_valence_ceiling,
+            self._config.arousal_ceiling,
+        )
+
     def _update_display_activity(self, raw_rates: dict[str, float]) -> tuple[dict[str, float], float, dict[str, float]]:
         """Roll raw_rates through the short display window and derive this tick's
-        visibly-reactive emotions, rating and region_activity."""
+        visibly-reactive emotions, rating and region_activity. region_activity's arousal
+        is the same ceiling-normalized value emotions/rating use, so the displayed
+        Erregung tile matches what actually drives the fly's mood; approach/avoidance
+        stay as raw (smoothed) pool spike rates, which aren't independently displayed."""
         display_rates = {name: average.update(raw_rates[name]) for name, average in self._display_rate_averages.items()}
-        valence, arousal = pool_rates_to_valence_arousal(
+        valence, arousal = self._pool_rates_to_valence_arousal(
             display_rates["approach"], display_rates["avoidance"], display_rates["arousal"]
         )
         emotions = compute_emotions(valence, arousal)
         rating = compute_rating(valence)
-        return emotions, rating, display_rates
+        region_activity = {**display_rates, "arousal": arousal}
+        return emotions, rating, region_activity
 
     def _update_engagement_rating_and_arousal(self, raw_rates: dict[str, float]) -> tuple[float, float]:
         """Roll raw_rates through the long engagement window and derive the smoothed
@@ -196,7 +215,7 @@ class ReadingSession:
         engagement_rates = {
             name: average.update(raw_rates[name]) for name, average in self._engagement_rate_averages.items()
         }
-        valence, arousal = pool_rates_to_valence_arousal(
+        valence, arousal = self._pool_rates_to_valence_arousal(
             engagement_rates["approach"], engagement_rates["avoidance"], engagement_rates["arousal"]
         )
         return compute_rating(valence), arousal

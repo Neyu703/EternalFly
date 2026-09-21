@@ -81,6 +81,9 @@ def average_trailing_rating(
         engagement_threshold=0.15,
         min_ticks_before_boredom_check=40,
         display_window_size=engagement_window_size,
+        positive_valence_ceiling=0.18,
+        negative_valence_ceiling=0.03,
+        arousal_ceiling=0.08,
         device=device,
     )
     session = ReadingSession(adjacency_matrix.shape[0], adjacency_matrix, pool_indices, tokens, config)

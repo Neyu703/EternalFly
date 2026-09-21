@@ -48,12 +48,55 @@ def test_rolling_average_running_sum_stays_correct_across_many_evictions():
     assert result == pytest.approx(expected_mean)
 
 
-def test_pool_rates_to_valence_arousal_computes_expected_tuple():
+def test_pool_rates_to_valence_arousal_scales_positive_valence_by_its_own_ceiling():
     valence, arousal = pool_rates_to_valence_arousal(
-        approach_pool_rate=0.8, avoidance_pool_rate=0.2, arousal_pool_rate=0.5
+        approach_pool_rate=0.3,
+        avoidance_pool_rate=0.1,
+        arousal_pool_rate=0.5,
+        positive_valence_ceiling=0.4,
+        negative_valence_ceiling=0.1,
+        arousal_ceiling=1.0,
     )
-    assert valence == pytest.approx(0.6)
+    assert valence == pytest.approx(0.5)  # raw 0.2 / positive ceiling 0.4
     assert arousal == pytest.approx(0.5)
+
+
+def test_pool_rates_to_valence_arousal_scales_negative_valence_by_its_own_ceiling():
+    valence, _ = pool_rates_to_valence_arousal(
+        approach_pool_rate=0.1,
+        avoidance_pool_rate=0.3,
+        arousal_pool_rate=0.0,
+        positive_valence_ceiling=0.4,
+        negative_valence_ceiling=0.1,
+        arousal_ceiling=1.0,
+    )
+    assert valence == pytest.approx(-1.0)  # raw -0.2 / negative ceiling 0.1, clamped to -1.0
+
+
+def test_pool_rates_to_valence_arousal_clamps_valence_and_arousal_to_their_bounds():
+    valence, arousal = pool_rates_to_valence_arousal(
+        approach_pool_rate=1.0,
+        avoidance_pool_rate=0.0,
+        arousal_pool_rate=1.0,
+        positive_valence_ceiling=0.1,
+        negative_valence_ceiling=0.1,
+        arousal_ceiling=0.1,
+    )
+    assert valence == pytest.approx(1.0)
+    assert arousal == pytest.approx(1.0)
+
+
+def test_pool_rates_to_valence_arousal_returns_zero_for_zero_ceiling():
+    valence, arousal = pool_rates_to_valence_arousal(
+        approach_pool_rate=0.5,
+        avoidance_pool_rate=0.0,
+        arousal_pool_rate=0.5,
+        positive_valence_ceiling=0.0,
+        negative_valence_ceiling=0.0,
+        arousal_ceiling=0.0,
+    )
+    assert valence == pytest.approx(0.0)
+    assert arousal == pytest.approx(0.0)
 
 
 def test_compute_emotions_at_joy_target_gives_joy_intensity_of_exactly_one():

@@ -38,6 +38,15 @@ TICKS_PER_WORD = 10
 CONTEXT_WORD_COUNT = 500  # how many recent words the boredom/engagement judgment averages over
 DISPLAY_WORD_COUNT = 10  # how many recent words the *displayed* rating/emotions/region_activity average over
 
+# The dopaminergic/octopaminergic pools are a few hundred neurons out of ~139k, so their
+# raw spike rates never get near 1.0 even under maximally extreme input - these are the
+# real achievable ceilings measured against the cached connectome (see
+# scripts/calibrate_sentiment.py), used to rescale valence/arousal into a full -1..1/0..1
+# range instead of a barely-moving sliver of it.
+POSITIVE_VALENCE_CEILING = 0.18
+NEGATIVE_VALENCE_CEILING = 0.03
+AROUSAL_CEILING = 0.08
+
 
 def load_adjacency_as_torch_sparse(device: str) -> torch.Tensor:
     """Load the cached signed adjacency matrix, scaled by WEIGHT_SCALE, as a torch sparse CSR tensor."""
@@ -79,6 +88,9 @@ def build_session() -> ReadingSession:
         engagement_threshold=0.15,
         min_ticks_before_boredom_check=CONTEXT_WORD_COUNT * TICKS_PER_WORD,
         display_window_size=DISPLAY_WORD_COUNT * TICKS_PER_WORD,
+        positive_valence_ceiling=POSITIVE_VALENCE_CEILING,
+        negative_valence_ceiling=NEGATIVE_VALENCE_CEILING,
+        arousal_ceiling=AROUSAL_CEILING,
         device=device,
     )
     return ReadingSession(
