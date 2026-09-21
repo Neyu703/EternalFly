@@ -9,6 +9,7 @@ export type AutoplayMode = "off" | "restart" | "shuffle";
 export type ControlMessage =
   | { type: "set_paused"; paused: boolean }
   | { type: "set_speed_multiplier"; value: number }
+  | { type: "set_words_per_minute"; value: number }
   | { type: "set_autoplay_mode"; mode: AutoplayMode };
 
 /** Raw JSON shape sent by eternalfly/server.py's tick_result_to_json (snake_case dataclass fields). */

@@ -35,8 +35,10 @@ INPUT_CURRENT_SCALE = 30.0
 VALENCE_WEIGHT = 1.0  # calibrated against the real connectome, see scripts/calibrate_sentiment.py
 AROUSAL_WEIGHT = 1.0  # calibrated against the real connectome, see scripts/calibrate_sentiment.py
 TICKS_PER_WORD = 10
+TICK_INTERVAL_SECONDS = 0.05
 CONTEXT_WORD_COUNT = 500  # how many recent words the boredom/engagement judgment averages over
 DISPLAY_WORD_COUNT = 10  # how many recent words the *displayed* rating/emotions/region_activity average over
+BASE_WORDS_PER_MINUTE = 60.0 / (TICKS_PER_WORD * TICK_INTERVAL_SECONDS)  # reading pace at speed_multiplier=1.0
 
 # The dopaminergic/octopaminergic pools are a few hundred neurons out of ~139k, so their
 # raw spike rates never get near 1.0 even under maximally extreme input - these are the
@@ -98,7 +100,12 @@ def build_session() -> ReadingSession:
     )
 
 
-app = create_app(build_session(), tick_interval_seconds=0.05, calibre_library_path=CALIBRE_LIBRARY_PATH)
+app = create_app(
+    build_session(),
+    tick_interval_seconds=TICK_INTERVAL_SECONDS,
+    calibre_library_path=CALIBRE_LIBRARY_PATH,
+    base_words_per_minute=BASE_WORDS_PER_MINUTE,
+)
 
 
 def main() -> None:

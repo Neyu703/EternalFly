@@ -485,6 +485,17 @@ def test_ws_set_speed_multiplier_control_message_calls_session_set_speed_multipl
     assert 2.5 in fake_session.speed_multiplier_calls
 
 
+def test_ws_set_words_per_minute_control_message_converts_to_speed_multiplier():
+    fake_session = FakeControllableSession()
+    client = TestClient(create_app(fake_session, tick_interval_seconds=0, base_words_per_minute=120.0))
+
+    with client.websocket_connect("/ws") as websocket:
+        websocket.send_json({"type": "set_words_per_minute", "value": 600.0})
+        _drain_websocket_until(websocket, lambda: 5.0 in fake_session.speed_multiplier_calls)
+
+    assert 5.0 in fake_session.speed_multiplier_calls  # 600 wpm / 120 base wpm
+
+
 def test_ws_autoplay_mode_off_never_restarts_when_book_finishes():
     fake_session = FakeControllableSession(finished_on_tick=20)
     client = TestClient(create_app(fake_session, tick_interval_seconds=0))

@@ -13,23 +13,39 @@ export type NeuropilActivity = Record<string, number>;
 const NEUROPIL_ACTIVITY_CEILING = 0.08;
 
 const IDLE_SATURATION = 0.5; // how muted a quiet region's color is, as a fraction of its true baked saturation
-const IDLE_OPACITY = 0.4;
-const ACTIVE_OPACITY = 0.95;
 const ACTIVE_LIGHTNESS_BOOST = 0.18; // how much brighter (whiter) a fully active region's color gets, on top of full saturation
+
+// The region volume itself stays a faint, mostly see-through fill so you can look through
+// it into deeper regions; the wireframe edges are the primary visual carrier of "this
+// region is firing", since a solid glowing blob reads as static while a mesh of lines
+// popping brighter reads as visibly reactive.
+const IDLE_FILL_OPACITY = 0.1;
+const ACTIVE_FILL_OPACITY = 0.5;
+const IDLE_WIREFRAME_OPACITY = 0.22;
+const ACTIVE_WIREFRAME_OPACITY = 1.0;
+
+/** One neuropil region's live-updated appearance: a faint translucent fill plus a
+ * wireframe outline, both driven off the same base hue and activity level. */
+type RegionAppearance = {
+  fillMaterial: THREE.MeshBasicMaterial;
+  wireframeMaterial: THREE.LineBasicMaterial;
+  baseHsl: { h: number; s: number; l: number };
+};
 
 /**
  * A translucent 3D brain outline (real FlyWire FAFB template mesh) with the real, anatomically
  * colored neuropil region meshes inside it (optic lobes red/orange, central complex blue,
- * mushroom body yellow/green, ...). Each region's own base color (baked in server-side, see
- * backend/scripts/extract_brain_geometry.py) is read directly off its mesh; regions stay a
- * muted, translucent version of that hue at rest so deeper regions remain visible through the
- * ones in front, then pop to their full saturated color and opacity as they fire. Without live
- * `activity`, regions gently pulse on their own so the page still reads as "alive".
+ * mushroom body yellow/green, ...) rendered as a faint fill plus a wireframe mesh of edges, so
+ * deeper regions stay visible through the gaps in the ones in front. Each region's own base
+ * color (baked in server-side, see backend/scripts/extract_brain_geometry.py) is read directly
+ * off its mesh; regions stay muted at rest and pop to their full saturated color, higher
+ * opacity and brighter wireframe as they fire. Without live `activity`, regions gently pulse
+ * on their own so the page still reads as "alive".
  */
 export function BrainGlow({ activity }: { activity?: NeuropilActivity }) {
   const { scene: brainScene } = useGLTF("/models/brain-outline.glb");
   const { scene: regionsScene } = useGLTF("/models/neuropil-regions.glb");
-  const regionMeshes = useRef<Record<string, THREE.Mesh>>({});
+  const regionAppearances = useRef<Record<string, RegionAppearance>>({});
 
   const brainCenter = useMemo(() => {
     const box = new THREE.Box3().setFromObject(brainScene);
@@ -52,38 +68,41 @@ export function BrainGlow({ activity }: { activity?: NeuropilActivity }) {
   }, [brainScene]);
 
   useEffect(() => {
-    const foundMeshes: Record<string, THREE.Mesh> = {};
+    const foundAppearances: Record<string, RegionAppearance> = {};
     regionsScene.traverse((child) => {
       if (!(child instanceof THREE.Mesh)) return;
-      const baseColor = readBaseVertexColor(child);
-      child.userData.baseHsl = baseColor.getHSL({ h: 0, s: 0, l: 0 });
-      // Unlit, semi-transparent material: the region's own hue drives saturation/lightness
-      // directly, untouched by scene lighting, and stays translucent at rest so regions
-      // nested deeper inside the brain remain visible through the ones in front of them.
-      child.material = new THREE.MeshBasicMaterial({
+      const baseHsl = readBaseVertexColor(child).getHSL({ h: 0, s: 0, l: 0 });
+
+      // Unlit, semi-transparent fill: the region's own hue drives saturation/lightness
+      // directly, untouched by scene lighting.
+      const fillMaterial = new THREE.MeshBasicMaterial({
         transparent: true,
-        opacity: IDLE_OPACITY,
         depthWrite: false,
         side: THREE.DoubleSide,
         toneMapped: false,
       });
-      applyRegionAppearance(child.material as THREE.MeshBasicMaterial, child.userData.baseHsl, 0);
-      foundMeshes[child.name] = child;
+      child.material = fillMaterial;
+
+      // A visible mesh-of-edges overlay, so the region reads as a translucent wireframe
+      // volume with gaps rather than a continuous solid blob.
+      const wireframeMaterial = new THREE.LineBasicMaterial({ transparent: true, toneMapped: false });
+      child.add(new THREE.LineSegments(new THREE.WireframeGeometry(child.geometry), wireframeMaterial));
+
+      const appearance: RegionAppearance = { fillMaterial, wireframeMaterial, baseHsl };
+      applyRegionAppearance(appearance, 0);
+      foundAppearances[child.name] = appearance;
     });
-    regionMeshes.current = foundMeshes;
+    regionAppearances.current = foundAppearances;
   }, [regionsScene]);
 
   useFrame(({ clock }) => {
-    for (const [regionName, mesh] of Object.entries(regionMeshes.current)) {
+    for (const [regionName, appearance] of Object.entries(regionAppearances.current)) {
       const liveActivity = activity?.[regionName];
       const normalizedActivity =
         liveActivity !== undefined
           ? Math.max(0, Math.min(1, liveActivity / NEUROPIL_ACTIVITY_CEILING))
           : Math.max(0, Math.sin(clock.elapsedTime * 1.5 + hashPhase(regionName))) * 0.5;
-      const baseHsl = mesh.userData.baseHsl as { h: number; s: number; l: number } | undefined;
-      const material = mesh.material as THREE.MeshBasicMaterial;
-      if (!baseHsl || !material) continue;
-      applyRegionAppearance(material, baseHsl, normalizedActivity);
+      applyRegionAppearance(appearance, normalizedActivity);
     }
   });
 
@@ -99,18 +118,17 @@ function lerp(from: number, to: number, fraction: number): number {
   return from + (to - from) * fraction;
 }
 
-/** Sets a region's material color/opacity for a given 0..1 normalizedActivity: muted,
- * translucent at rest (IDLE_SATURATION/IDLE_OPACITY) rising to the region's full true
- * hue plus a lightness pop at full activity (ACTIVE_OPACITY/ACTIVE_LIGHTNESS_BOOST). */
-function applyRegionAppearance(
-  material: THREE.MeshBasicMaterial,
-  baseHsl: { h: number; s: number; l: number },
-  normalizedActivity: number,
-): void {
+/** Sets a region's fill/wireframe color and opacity for a given 0..1 normalizedActivity:
+ * muted and faint at rest, rising to the region's full true hue plus a lightness pop,
+ * higher fill opacity and a brighter wireframe at full activity. */
+function applyRegionAppearance(appearance: RegionAppearance, normalizedActivity: number): void {
+  const { fillMaterial, wireframeMaterial, baseHsl } = appearance;
   const saturation = lerp(baseHsl.s * IDLE_SATURATION, baseHsl.s, normalizedActivity);
   const lightness = lerp(baseHsl.l, Math.min(1, baseHsl.l + ACTIVE_LIGHTNESS_BOOST), normalizedActivity);
-  material.color.setHSL(baseHsl.h, saturation, lightness);
-  material.opacity = lerp(IDLE_OPACITY, ACTIVE_OPACITY, normalizedActivity);
+  fillMaterial.color.setHSL(baseHsl.h, saturation, lightness);
+  fillMaterial.opacity = lerp(IDLE_FILL_OPACITY, ACTIVE_FILL_OPACITY, normalizedActivity);
+  wireframeMaterial.color.copy(fillMaterial.color);
+  wireframeMaterial.opacity = lerp(IDLE_WIREFRAME_OPACITY, ACTIVE_WIREFRAME_OPACITY, normalizedActivity);
 }
 
 /** Reads a mesh's uniform per-vertex color (baked server-side, same value on every vertex). */

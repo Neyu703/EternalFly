@@ -265,12 +265,36 @@ class ReadingSession:
         """Return ticks_per_word scaled down by the current speed multiplier, never below 1."""
         return max(1, round(self._config.ticks_per_word / self._speed_multiplier))
 
+    def _ticks_per_call(self) -> int:
+        """How many raw simulation ticks a single public tick() call advances.
+
+        Speeding up first shrinks ticks-per-word (see _effective_ticks_per_word) down to
+        its floor of 1 raw tick per word - the fastest a word can be represented at all.
+        Beyond that floor (speed_multiplier > ticks_per_word), further speed can only
+        come from advancing multiple whole words' worth of ticks within one tick() call,
+        so reading speed isn't permanently capped at "1 tick per word" once that floor
+        is reached."""
+        floor_speed = self._config.ticks_per_word
+        if self._speed_multiplier <= floor_speed:
+            return 1
+        return round(self._speed_multiplier / floor_speed)
+
     def tick(self) -> TickResult:
-        """Advance the session by one simulation tick and return its observable result.
-        While paused, returns the last result unchanged instead of advancing."""
+        """Advance the session by one or more raw simulation ticks (see _ticks_per_call)
+        and return the resulting observable state. While paused, returns the last result
+        unchanged instead of advancing."""
         if self._is_paused and self._last_tick_result is not None:
             return self._last_tick_result
 
+        result = self._advance_single_tick()
+        for _ in range(self._ticks_per_call() - 1):
+            if result.book_finished:
+                break
+            result = self._advance_single_tick()
+        return result
+
+    def _advance_single_tick(self) -> TickResult:
+        """Advance the session by exactly one raw simulation tick and return its result."""
         word_index = word_index_for_tick(self._tick_number, self._effective_ticks_per_word())
         book_finished = word_index >= len(self._tokens)
         current_word = None if book_finished else self._tokens[word_index]

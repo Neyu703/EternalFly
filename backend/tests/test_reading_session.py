@@ -291,6 +291,43 @@ def test_set_speed_multiplier_above_one_advances_words_faster():
     assert second_tick.current_word == "world"
 
 
+def test_set_speed_multiplier_beyond_the_tick_floor_advances_multiple_words_per_call():
+    # ticks_per_word=2, so speed_multiplier=2 already hits the floor of 1 tick/word;
+    # speed_multiplier=6 is 3x beyond that floor, so one tick() call should batch 3 raw
+    # ticks internally (see ReadingSession._ticks_per_call) and land on the third word.
+    session = ReadingSession(
+        NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["a", "b", "c", "d", "e"], _make_config(ticks_per_word=2)
+    )
+    session.set_speed_multiplier(6.0)
+
+    first_tick = session.tick()
+
+    assert first_tick.current_word == "c"
+    assert first_tick.words_read == 3
+
+
+def test_set_speed_multiplier_beyond_the_tick_floor_stops_batching_at_book_end():
+    session = ReadingSession(NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["a", "b"], _make_config(ticks_per_word=2))
+    session.set_speed_multiplier(6.0)
+
+    tick_result = session.tick()
+
+    assert tick_result.book_finished is True
+    assert tick_result.current_word is None
+
+
+def test_set_speed_multiplier_far_beyond_book_length_breaks_out_of_the_batch_loop_early():
+    # ticks_per_call would be 10 raw ticks here, but the 2-word book finishes after only
+    # 3 (word "a", word "b", then finished) - the batch loop must stop advancing once
+    # book_finished flips True instead of wastefully looping through the rest.
+    session = ReadingSession(NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["a", "b"], _make_config(ticks_per_word=2))
+    session.set_speed_multiplier(20.0)
+
+    session.tick()
+
+    assert session._tick_number == 3
+
+
 def test_set_speed_multiplier_non_positive_raises_value_error():
     session = ReadingSession(NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["hello"], _make_config())
 

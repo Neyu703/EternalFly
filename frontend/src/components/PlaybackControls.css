@@ -30,11 +30,18 @@
   gap: 4px;
 }
 
-.playback-speed input[type="range"] {
-  width: 90px;
+.playback-speed select,
+.playback-autoplay-mode select {
+  background: #1c2733;
+  color: #e6edf3;
+  border: 1px solid #2a3a4a;
+  border-radius: 6px;
+  padding: 3px 6px;
+  font-size: 12px;
 }
 
-.playback-autoplay-mode select {
+.playback-speed-custom-input {
+  width: 90px;
   background: #1c2733;
   color: #e6edf3;
   border: 1px solid #2a3a4a;

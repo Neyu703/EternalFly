@@ -32,14 +32,18 @@ class LoadBookRequest(BaseModel):
     path: str
 
 
-def _apply_control_message(session, message: dict, current_autoplay_mode: str) -> str:
+def _apply_control_message(session, message: dict, current_autoplay_mode: str, base_words_per_minute: float) -> str:
     """Apply one client control message to the session and return the resulting
-    autoplay mode (unchanged unless the message sets it)."""
+    autoplay mode (unchanged unless the message sets it). base_words_per_minute is the
+    real reading pace at speed_multiplier=1.0 (see create_app), used to convert an
+    absolute set_words_per_minute request into the multiplier ReadingSession expects."""
     message_type = message.get("type")
     if message_type == "set_paused":
         session.set_paused(bool(message.get("paused", False)))
     elif message_type == "set_speed_multiplier":
         session.set_speed_multiplier(float(message.get("value", 1.0)))
+    elif message_type == "set_words_per_minute":
+        session.set_speed_multiplier(float(message.get("value", base_words_per_minute)) / base_words_per_minute)
     elif message_type == "set_autoplay_mode":
         return message.get("mode", AUTOPLAY_MODE_OFF)
     return current_autoplay_mode
@@ -75,9 +79,13 @@ def create_app(
     tick_interval_seconds: float = 0.05,
     calibre_library_path: pathlib.Path | None = None,
     load_book_timeout_seconds: float = DEFAULT_LOAD_BOOK_TIMEOUT_SECONDS,
+    base_words_per_minute: float = 120.0,
 ) -> FastAPI:
     """Build a FastAPI app that streams `session.tick()` results over `/ws` as JSON,
-    one message per tick, until the client disconnects."""
+    one message per tick, until the client disconnects. base_words_per_minute is the
+    real reading pace session's speed_multiplier=1.0 corresponds to (i.e.
+    60 / (ticks_per_word * tick_interval_seconds)), used to convert an absolute
+    set_words_per_minute control message into the multiplier the session expects."""
     app = FastAPI()
     app.add_middleware(
         CORSMiddleware,
@@ -100,7 +108,7 @@ def create_app(
             try:
                 while True:
                     message = await websocket.receive_json()
-                    autoplay_mode = _apply_control_message(session, message, autoplay_mode)
+                    autoplay_mode = _apply_control_message(session, message, autoplay_mode, base_words_per_minute)
             except WebSocketDisconnect:
                 return
 

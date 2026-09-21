@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 import type { AutoplayMode, ControlMessage } from "../hooks/useWebSocketTickData";
 import "./PlaybackControls.css";
 
-const MIN_SPEED_MULTIPLIER = 0.25;
-const MAX_SPEED_MULTIPLIER = 4;
-const SPEED_STEP = 0.25;
+const WPM_PRESETS = [60, 150, 300, 600, 1200, 3000, 10000] as const;
+const CUSTOM_WPM_OPTION = "custom";
+const DEFAULT_WORDS_PER_MINUTE = 150;
 const DEFAULT_AUTOPLAY_MODE: AutoplayMode = "restart";
 
 /** Play/pause toggle, a reading-speed slider, and a selector for what the fly does once
@@ -16,7 +16,8 @@ export function PlaybackControls({
   sendControlMessage: (message: ControlMessage) => void;
 }) {
   const [isPaused, setIsPaused] = useState(false);
-  const [speedMultiplier, setSpeedMultiplier] = useState(1);
+  const [wordsPerMinute, setWordsPerMinute] = useState(DEFAULT_WORDS_PER_MINUTE);
+  const [isCustomWpm, setIsCustomWpm] = useState(false);
   const [autoplayMode, setAutoplayMode] = useState<AutoplayMode>(DEFAULT_AUTOPLAY_MODE);
 
   useEffect(() => {
@@ -32,10 +33,24 @@ export function PlaybackControls({
     sendControlMessage({ type: "set_paused", paused: nextIsPaused });
   }
 
-  function handleSpeedChange(event: React.ChangeEvent<HTMLInputElement>) {
-    const nextSpeedMultiplier = Number(event.target.value);
-    setSpeedMultiplier(nextSpeedMultiplier);
-    sendControlMessage({ type: "set_speed_multiplier", value: nextSpeedMultiplier });
+  function sendWordsPerMinute(nextWordsPerMinute: number) {
+    setWordsPerMinute(nextWordsPerMinute);
+    sendControlMessage({ type: "set_words_per_minute", value: nextWordsPerMinute });
+  }
+
+  function handleWpmPresetChange(event: React.ChangeEvent<HTMLSelectElement>) {
+    if (event.target.value === CUSTOM_WPM_OPTION) {
+      setIsCustomWpm(true);
+      return;
+    }
+    setIsCustomWpm(false);
+    sendWordsPerMinute(Number(event.target.value));
+  }
+
+  function handleCustomWpmChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const nextWordsPerMinute = Number(event.target.value);
+    if (!Number.isFinite(nextWordsPerMinute) || nextWordsPerMinute <= 0) return;
+    sendWordsPerMinute(nextWordsPerMinute);
   }
 
   function handleAutoplayModeChange(event: React.ChangeEvent<HTMLSelectElement>) {
@@ -51,15 +66,26 @@ export function PlaybackControls({
       </button>
 
       <label className="playback-speed">
-        <span className="hud-label">Tempo {speedMultiplier.toFixed(2)}×</span>
-        <input
-          type="range"
-          min={MIN_SPEED_MULTIPLIER}
-          max={MAX_SPEED_MULTIPLIER}
-          step={SPEED_STEP}
-          value={speedMultiplier}
-          onChange={handleSpeedChange}
-        />
+        <span className="hud-label">Tempo</span>
+        <select value={isCustomWpm ? CUSTOM_WPM_OPTION : wordsPerMinute} onChange={handleWpmPresetChange}>
+          {WPM_PRESETS.map((preset) => (
+            <option key={preset} value={preset}>
+              {preset} Wörter/Min
+            </option>
+          ))}
+          <option value={CUSTOM_WPM_OPTION}>Benutzerdefiniert…</option>
+        </select>
+        {isCustomWpm && (
+          <input
+            type="number"
+            className="playback-speed-custom-input"
+            min={1}
+            step={1}
+            value={wordsPerMinute}
+            onChange={handleCustomWpmChange}
+            placeholder="Wörter/Min"
+          />
+        )}
       </label>
 
       <label className="playback-autoplay-mode">
