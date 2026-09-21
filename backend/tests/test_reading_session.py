@@ -38,6 +38,7 @@ def _make_config(**overrides) -> ReadingSessionConfig:
         engagement_window_size=3,
         engagement_threshold=0.3,
         min_ticks_before_boredom_check=3,
+        display_window_size=3,
         device="cpu",
     )
     defaults.update(overrides)

@@ -77,6 +77,7 @@ def main() -> None:
         engagement_window_size=5000,  # ~500 words of context, see scripts/calibrate_sentiment.py
         engagement_threshold=0.15,
         min_ticks_before_boredom_check=5000,
+        display_window_size=100,  # ~10 words, see scripts/calibrate_sentiment.py
         device=device,
     )
     session = ReadingSession(neuron_count, scaled_adjacency_matrix, pool_indices, tokens, config)

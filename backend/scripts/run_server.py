@@ -35,7 +35,8 @@ INPUT_CURRENT_SCALE = 30.0
 VALENCE_WEIGHT = 1.0  # calibrated against the real connectome, see scripts/calibrate_sentiment.py
 AROUSAL_WEIGHT = 1.0  # calibrated against the real connectome, see scripts/calibrate_sentiment.py
 TICKS_PER_WORD = 10
-CONTEXT_WORD_COUNT = 500  # how many recent words the rating/emotions average over
+CONTEXT_WORD_COUNT = 500  # how many recent words the boredom/engagement judgment averages over
+DISPLAY_WORD_COUNT = 10  # how many recent words the *displayed* rating/emotions/region_activity average over
 
 
 def load_adjacency_as_torch_sparse(device: str) -> torch.Tensor:
@@ -77,6 +78,7 @@ def build_session() -> ReadingSession:
         engagement_window_size=CONTEXT_WORD_COUNT * TICKS_PER_WORD,
         engagement_threshold=0.15,
         min_ticks_before_boredom_check=CONTEXT_WORD_COUNT * TICKS_PER_WORD,
+        display_window_size=DISPLAY_WORD_COUNT * TICKS_PER_WORD,
         device=device,
     )
     return ReadingSession(

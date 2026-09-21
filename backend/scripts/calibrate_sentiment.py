@@ -75,10 +75,12 @@ def average_trailing_rating(
         ticks_per_word=10,
         input_current_scale=INPUT_CURRENT_SCALE,
         valence_weight=valence_weight,
+        arousal_weight=1.0,
         token_seed=42,
         engagement_window_size=engagement_window_size,
         engagement_threshold=0.15,
         min_ticks_before_boredom_check=40,
+        display_window_size=engagement_window_size,
         device=device,
     )
     session = ReadingSession(adjacency_matrix.shape[0], adjacency_matrix, pool_indices, tokens, config)

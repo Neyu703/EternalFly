@@ -3,6 +3,7 @@ import type { ControlMessage } from "../hooks/useWebSocketTickData";
 import { LoadBookButton } from "./LoadBookButton";
 import { CalibreBookList } from "./CalibreBookList";
 import { PlaybackControls } from "./PlaybackControls";
+import { LiveLogPanel } from "./LiveLogPanel";
 import "./HudPanel.css";
 
 const EMOTION_COLORS: Record<string, string> = {
@@ -61,6 +62,7 @@ export function HudPanel({
       )}
 
       <LoadBookButton />
+      <LiveLogPanel tick={tick} />
     </div>
   );
 }

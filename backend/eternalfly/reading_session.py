@@ -28,6 +28,7 @@ class ReadingSessionConfig:
     engagement_window_size: int
     engagement_threshold: float
     min_ticks_before_boredom_check: int
+    display_window_size: int  # short window for the live-displayed rating/emotions/region_activity, separate from engagement_window_size's long-run boredom judgment
     device: str = "cpu"
 
 
@@ -93,16 +94,27 @@ class ReadingSession:
         self._speed_multiplier = 1.0
         self._last_tick_result: TickResult | None = None
 
-        self._approach_rate_average = RollingAverage(config.engagement_window_size)
-        self._avoidance_rate_average = RollingAverage(config.engagement_window_size)
-        self._arousal_rate_average = RollingAverage(config.engagement_window_size)
+        # Two independent timescales over the same raw per-tick pool spike rates: a short
+        # window so the displayed rating/emotions/region_activity visibly react to the
+        # sentence currently being read, and a long window purely for judging whether the
+        # fly has been engaged over its recent reading as a whole (wants_new_book).
+        self._display_rate_averages = {
+            "approach": RollingAverage(config.display_window_size),
+            "avoidance": RollingAverage(config.display_window_size),
+            "arousal": RollingAverage(config.display_window_size),
+        }
+        self._engagement_rate_averages = {
+            "approach": RollingAverage(config.engagement_window_size),
+            "avoidance": RollingAverage(config.engagement_window_size),
+            "arousal": RollingAverage(config.engagement_window_size),
+        }
         self._engagement_average = RollingAverage(config.engagement_window_size)
 
         self._neuropil_pool_indices = {
             region_name: indices.to(config.device) for region_name, indices in (neuropil_pool_indices or {}).items()
         }
         self._neuropil_rate_averages = {
-            region_name: RollingAverage(config.engagement_window_size) for region_name in self._neuropil_pool_indices
+            region_name: RollingAverage(config.display_window_size) for region_name in self._neuropil_pool_indices
         }
 
     def _current_external_input(self, word_index: int, book_finished: bool) -> torch.Tensor:
@@ -158,17 +170,36 @@ class ReadingSession:
 
         return external_input
 
-    def _update_emotions(self, spikes: torch.Tensor) -> tuple[dict[str, float], float, dict[str, float]]:
-        """Roll pool spike rates forward and derive this tick's emotions, rating and activity."""
-        approach_rate = self._approach_rate_average.update(compute_pool_spike_rate(spikes, self._approach_pool_indices))
-        avoidance_rate = self._avoidance_rate_average.update(compute_pool_spike_rate(spikes, self._avoidance_pool_indices))
-        arousal_rate = self._arousal_rate_average.update(compute_pool_spike_rate(spikes, self._arousal_pool_indices))
+    def _raw_pool_rates(self, spikes: torch.Tensor) -> dict[str, float]:
+        """Return this tick's raw (unsmoothed) spike rate for each emotion-tracking pool,
+        fed into both the short display window and the long engagement window below."""
+        return {
+            "approach": compute_pool_spike_rate(spikes, self._approach_pool_indices),
+            "avoidance": compute_pool_spike_rate(spikes, self._avoidance_pool_indices),
+            "arousal": compute_pool_spike_rate(spikes, self._arousal_pool_indices),
+        }
 
-        valence, arousal = pool_rates_to_valence_arousal(approach_rate, avoidance_rate, arousal_rate)
+    def _update_display_activity(self, raw_rates: dict[str, float]) -> tuple[dict[str, float], float, dict[str, float]]:
+        """Roll raw_rates through the short display window and derive this tick's
+        visibly-reactive emotions, rating and region_activity."""
+        display_rates = {name: average.update(raw_rates[name]) for name, average in self._display_rate_averages.items()}
+        valence, arousal = pool_rates_to_valence_arousal(
+            display_rates["approach"], display_rates["avoidance"], display_rates["arousal"]
+        )
         emotions = compute_emotions(valence, arousal)
         rating = compute_rating(valence)
-        region_activity = {"approach": approach_rate, "avoidance": avoidance_rate, "arousal": arousal_rate}
-        return emotions, rating, region_activity
+        return emotions, rating, display_rates
+
+    def _update_engagement_rating_and_arousal(self, raw_rates: dict[str, float]) -> tuple[float, float]:
+        """Roll raw_rates through the long engagement window and derive the smoothed
+        rating/arousal used to judge whether the fly is bored (see _update_engagement)."""
+        engagement_rates = {
+            name: average.update(raw_rates[name]) for name, average in self._engagement_rate_averages.items()
+        }
+        valence, arousal = pool_rates_to_valence_arousal(
+            engagement_rates["approach"], engagement_rates["avoidance"], engagement_rates["arousal"]
+        )
+        return compute_rating(valence), arousal
 
     def _update_neuropil_activity(self, spikes: torch.Tensor) -> dict[str, float]:
         """Roll each configured neuropil region's spike rate forward and return the
@@ -231,9 +262,11 @@ class ReadingSession:
         )
         self._previous_spikes = spikes
 
-        emotions, rating, region_activity = self._update_emotions(spikes)
+        raw_rates = self._raw_pool_rates(spikes)
+        emotions, rating, region_activity = self._update_display_activity(raw_rates)
         neuropil_activity = self._update_neuropil_activity(spikes)
-        wants_new_book = self._update_engagement(rating, region_activity["arousal"])
+        engagement_rating, engagement_arousal = self._update_engagement_rating_and_arousal(raw_rates)
+        wants_new_book = self._update_engagement(engagement_rating, engagement_arousal)
 
         page_progress = 1.0 if book_finished else (word_index + 1) / len(self._tokens)
         words_read = len(self._tokens) if book_finished else word_index + 1
