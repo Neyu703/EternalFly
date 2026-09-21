@@ -9,13 +9,18 @@ const DEFAULT_AUTOPLAY_MODE: AutoplayMode = "restart";
 
 /** Play/pause toggle, a reading-speed slider, and a selector for what the fly does once
  * it finishes a book (read it again from the start, or shuffle in a random Calibre book).
- * Sends every change straight to the backend over the shared WebSocket control channel. */
+ * Sends every change straight to the backend over the shared WebSocket control channel.
+ * isPaused/onTogglePaused are lifted to the app root so other components (e.g. the Live
+ * Neural Activity chart) can also react to the paused state. */
 export function PlaybackControls({
+  isPaused,
+  onTogglePaused,
   sendControlMessage,
 }: {
+  isPaused: boolean;
+  onTogglePaused: () => void;
   sendControlMessage: (message: ControlMessage) => void;
 }) {
-  const [isPaused, setIsPaused] = useState(false);
   const [wordsPerMinute, setWordsPerMinute] = useState(DEFAULT_WORDS_PER_MINUTE);
   const [isCustomWpm, setIsCustomWpm] = useState(false);
   const [autoplayMode, setAutoplayMode] = useState<AutoplayMode>(DEFAULT_AUTOPLAY_MODE);
@@ -26,12 +31,6 @@ export function PlaybackControls({
     // connection. Later changes are sent directly by handleAutoplayModeChange below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  function togglePaused() {
-    const nextIsPaused = !isPaused;
-    setIsPaused(nextIsPaused);
-    sendControlMessage({ type: "set_paused", paused: nextIsPaused });
-  }
 
   function sendWordsPerMinute(nextWordsPerMinute: number) {
     setWordsPerMinute(nextWordsPerMinute);
@@ -61,7 +60,7 @@ export function PlaybackControls({
 
   return (
     <div className="playback-controls">
-      <button className="playback-toggle" onClick={togglePaused}>
+      <button className="playback-toggle" onClick={onTogglePaused}>
         {isPaused ? "▶ Weiterlesen" : "⏸ Pausieren"}
       </button>
 

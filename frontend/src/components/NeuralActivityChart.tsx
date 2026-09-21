@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import type { TickData } from "../types";
+import { formatPercent } from "../utils/format";
+import { Sparkline } from "./Sparkline";
 import "./NeuralActivityChart.css";
 
 const HISTORY_LENGTH = 80;
-const CHART_WIDTH = 300;
-const CHART_HEIGHT = 28;
 
 /** Mean spiking rate across the fly's tracked brain regions this tick (0..1), preferring
  * the fine-grained per-neuropil breakdown and falling back to the coarser approach/
@@ -16,72 +16,21 @@ function overallFiringRate(tick: TickData): number {
   return rates.reduce((sum, rate) => sum + rate, 0) / rates.length;
 }
 
-/** Builds an SVG polyline's `points` attribute from a value history, scaling the y-axis
- * against maxValue (either a fixed domain ceiling or the history's own peak). */
-function buildSparklinePoints(history: number[], maxValue: number): string {
-  if (history.length === 0) return "";
-  return history
-    .map((value, index) => {
-      const x = (index / Math.max(history.length - 1, 1)) * CHART_WIDTH;
-      const y = CHART_HEIGHT - (value / maxValue) * CHART_HEIGHT;
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    })
-    .join(" ");
-}
-
-function formatPercent(fraction: number): string {
-  return `${Math.round(fraction * 100)}%`;
-}
-
-/** One small labeled sparkline: a value history plotted against either a fixed domain
- * (maxValue) or, when maxValue is omitted, the history's own observed peak. */
-function Sparkline({
-  label,
-  history,
-  maxValue,
-  color,
-  formatDomain,
-}: {
-  label: string;
-  history: number[];
-  maxValue?: number;
-  color: string;
-  formatDomain: (value: number) => string;
-}) {
-  const peak = maxValue ?? Math.max(...history, 0.0001);
-  const points = buildSparklinePoints(history, peak);
-  const latestPoint = points.split(" ").at(-1)?.split(",").map(Number);
-  return (
-    <div className="neural-activity-sparkline-block">
-      <div className="neural-activity-chart-caption">
-        <span>{label}</span>
-        <span>
-          0–{formatDomain(peak)} {maxValue === undefined && "· auto-scale"}
-        </span>
-      </div>
-      <svg
-        className="neural-activity-sparkline"
-        viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
-        preserveAspectRatio="none"
-      >
-        <polyline points={points} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-        {latestPoint && <circle cx={latestPoint[0]} cy={latestPoint[1]} r="2.5" fill={color} />}
-      </svg>
-    </div>
-  );
-}
-
 /** Live-updating status card: the fly's current dopamine rating, overall firing rate and
  * arousal, each with its own rolling sparkline over the last HISTORY_LENGTH ticks (~4s
  * at the default tick rate). Dopamine and arousal plot against their real fixed 0-10 /
  * 0-100% domain (they're already calibrated to it, see emotion_decoder.py), while firing
- * rate auto-scales to its own observed peak since it isn't ceiling-normalized. */
-export function NeuralActivityChart({ tick }: { tick: TickData }) {
+ * rate auto-scales to its own observed peak since it isn't ceiling-normalized. While
+ * isPaused, the backend keeps resending the same frozen tick - history stops accepting
+ * new points so the sparklines hold their last real trend instead of flattening out into
+ * a repeated-value line. */
+export function NeuralActivityChart({ tick, isPaused }: { tick: TickData; isPaused: boolean }) {
   const [firingRateHistory, setFiringRateHistory] = useState<number[]>([]);
   const [ratingHistory, setRatingHistory] = useState<number[]>([]);
   const [arousalHistory, setArousalHistory] = useState<number[]>([]);
 
   useEffect(() => {
+    if (isPaused) return;
     const pushCapped = (previousHistory: number[], value: number): number[] => {
       const nextHistory = [...previousHistory, value];
       return nextHistory.length > HISTORY_LENGTH ? nextHistory.slice(-HISTORY_LENGTH) : nextHistory;
@@ -89,7 +38,7 @@ export function NeuralActivityChart({ tick }: { tick: TickData }) {
     setFiringRateHistory((previousHistory) => pushCapped(previousHistory, overallFiringRate(tick)));
     setRatingHistory((previousHistory) => pushCapped(previousHistory, tick.rating0To10));
     setArousalHistory((previousHistory) => pushCapped(previousHistory, tick.regionActivity.arousal ?? 0));
-  }, [tick]);
+  }, [tick, isPaused]);
 
   const currentFiringRate = firingRateHistory[firingRateHistory.length - 1] ?? 0;
   const arousal = tick.regionActivity.arousal ?? 0;

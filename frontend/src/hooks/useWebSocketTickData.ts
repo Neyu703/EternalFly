@@ -23,6 +23,7 @@ type RawTick = {
   region_activity: Record<string, number>;
   neuropil_activity: Record<string, number>;
   wants_new_book: boolean;
+  book_finished: boolean;
 };
 
 /** Converts one raw server tick into the frontend's camelCase TickData shape. */
@@ -37,6 +38,7 @@ function toTickData(raw: RawTick): TickData {
     regionActivity: raw.region_activity,
     neuropilActivity: raw.neuropil_activity,
     wantsNewBook: raw.wants_new_book,
+    bookFinished: raw.book_finished,
   };
 }
 

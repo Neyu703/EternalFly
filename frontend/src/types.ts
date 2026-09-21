@@ -10,6 +10,7 @@ export type TickData = {
   wantsNewBook: boolean;
   /** Per-neuropil live firing rate (0..1), keyed the same as neuropil-centroids.json. */
   neuropilActivity: Record<string, number>;
+  bookFinished: boolean;
 };
 
 export const EMOTION_NAMES = [

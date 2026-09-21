@@ -1,15 +1,28 @@
+import { useState } from "react";
 import { FlyBookScene } from "./components/FlyBookScene";
 import { BrainScene } from "./components/BrainScene";
 import { HudPanel } from "./components/HudPanel";
 import { NeuralActivityChart } from "./components/NeuralActivityChart";
+import { BookOverviewPanel } from "./components/BookOverviewPanel";
 import { useWebSocketTickData } from "./hooks/useWebSocketTickData";
+import { useBookHistory } from "./hooks/useBookHistory";
 import "./App.css";
 
 const BACKEND_WS_URL = "ws://127.0.0.1:8000/ws";
 
-/** Dashboard layout: the two 3D panels (fly+book, brain) side by side on top, live data panel below. */
+/** Dashboard layout: the two 3D panels (fly+book, brain) side by side on top, live data panel below.
+ * Owns isPaused (rather than PlaybackControls) so both the play/pause button and the Live
+ * Neural Activity chart - which needs to freeze its sparklines while paused - agree on it. */
 function App() {
   const { tick, sendControlMessage } = useWebSocketTickData(BACKEND_WS_URL);
+  const [isPaused, setIsPaused] = useState(false);
+  const { finishedBookHistory, dismissFinishedBookHistory } = useBookHistory(tick);
+
+  function togglePaused() {
+    const nextIsPaused = !isPaused;
+    setIsPaused(nextIsPaused);
+    sendControlMessage({ type: "set_paused", paused: nextIsPaused });
+  }
 
   return (
     <div className="dashboard">
@@ -19,16 +32,19 @@ function App() {
         </div>
         <div className="dashboard-panel dashboard-panel--brain">
           <BrainScene activity={tick?.neuropilActivity} />
-          {tick && <NeuralActivityChart tick={tick} />}
+          {tick && <NeuralActivityChart tick={tick} isPaused={isPaused} />}
         </div>
       </div>
       <div className="dashboard-panel dashboard-panel--hud">
         {tick ? (
-          <HudPanel tick={tick} sendControlMessage={sendControlMessage} />
+          <HudPanel tick={tick} isPaused={isPaused} onTogglePaused={togglePaused} sendControlMessage={sendControlMessage} />
         ) : (
           <div className="hud-connecting">Verbinde mit der Simulation…</div>
         )}
       </div>
+      {finishedBookHistory && (
+        <BookOverviewPanel history={finishedBookHistory} onDismiss={dismissFinishedBookHistory} />
+      )}
     </div>
   );
 }

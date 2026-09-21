@@ -1,0 +1,64 @@
+.book-overview-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 6, 10, 0.75);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.book-overview-panel {
+  width: min(680px, 92vw);
+  max-height: 86vh;
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  background: #0e141b;
+  border: 1px solid #263544;
+  border-radius: 14px;
+  color: #e6edf3;
+  font-family: system-ui, sans-serif;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.book-overview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.book-overview-title {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.book-overview-close {
+  background: none;
+  border: none;
+  color: #8b98a5;
+  font-size: 16px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 4px;
+}
+
+.book-overview-close:hover {
+  color: #e6edf3;
+}
+
+.book-overview-main-charts {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.book-overview-emotion-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px 20px;
+}

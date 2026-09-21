@@ -1,35 +1,29 @@
 import { EMOTION_NAMES, type TickData } from "../types";
 import type { ControlMessage } from "../hooks/useWebSocketTickData";
+import { EMOTION_COLORS } from "../emotionColors";
 import { LoadBookButton } from "./LoadBookButton";
 import { CalibreBookList } from "./CalibreBookList";
 import { PlaybackControls } from "./PlaybackControls";
 import { LiveLogPanel } from "./LiveLogPanel";
 import "./HudPanel.css";
 
-const EMOTION_COLORS: Record<string, string> = {
-  joy: "#ffd166",
-  trust: "#06d6a0",
-  fear: "#8338ec",
-  surprise: "#ff9f1c",
-  sadness: "#4361ee",
-  disgust: "#7cb518",
-  anger: "#ef476f",
-  anticipation: "#f4a261",
-};
-
 /** Dashboard panel: current reading position, rating, the 8 Plutchik emotion bars, and
  * playback controls (pause/speed/autoplay-on-finish). The live neural activity chart is
  * rendered separately, floating over the brain scene (see App.tsx). */
 export function HudPanel({
   tick,
+  isPaused,
+  onTogglePaused,
   sendControlMessage,
 }: {
   tick: TickData;
+  isPaused: boolean;
+  onTogglePaused: () => void;
   sendControlMessage: (message: ControlMessage) => void;
 }) {
   return (
     <div className="hud-panel">
-      <PlaybackControls sendControlMessage={sendControlMessage} />
+      <PlaybackControls isPaused={isPaused} onTogglePaused={onTogglePaused} sendControlMessage={sendControlMessage} />
 
       <div className="hud-section hud-word-section">
         <span className="hud-label">Liest:</span>
