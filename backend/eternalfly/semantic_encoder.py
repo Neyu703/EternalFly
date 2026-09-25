@@ -46,14 +46,32 @@ BACKGROUND_WORDS: list[str] = [
     "Lampe", "Teppich", "Wolke", "Berg", "Fluss", "Schuh", "Hemd", "Uhr", "Blatt", "Papier",
     "table", "chair", "house", "street", "book", "window", "door", "car", "tree", "city",
     "lamp", "carpet", "cloud", "mountain", "river", "shoe", "shirt", "clock", "leaf", "paper",
+    # Ordinary book prose is mostly function words (articles, conjunctions,
+    # prepositions, pronouns, common verbs), not nouns - without these, a short
+    # grammatical word sits as a systematic outlier relative to a noun-only baseline
+    # and z-scores high on almost every channel at once (verified against the real
+    # model: "Der"/"und"/"in" all landed z>=2 on every one of the 11 real channels
+    # before this list included any function words).
+    "der", "die", "das", "und", "oder", "aber", "ist", "war", "hat", "hatte",
+    "mit", "für", "auf", "von", "zu", "er", "sie", "es", "nicht", "auch",
+    "the", "and", "or", "but", "is", "was", "has", "had",
+    "with", "for", "on", "from", "to", "he", "she", "it", "not", "also",
 ]
 
 # DE+EN anchors for context_valence's positive/negative poles (see that function).
 POSITIVE_CONTEXT_ANCHORS: list[str] = ["gut", "schön", "wunderbar", "good", "wonderful", "great"]
 NEGATIVE_CONTEXT_ANCHORS: list[str] = ["schlecht", "schrecklich", "furchtbar", "bad", "terrible", "awful"]
 
-Z_RAMP_START = 2.0
-Z_RAMP_END = 4.0
+# Verified against the real model + a background vocabulary spanning both nouns and
+# common function words (see BACKGROUND_WORDS): a general-purpose (not domain-tuned)
+# sentence embedding gives real content-word triggers z-scores mostly in the 1.5-5
+# range against a handful of anchor words per channel, while ordinary function words
+# ("der", "und", ...) top out around z=1.4 on any single channel - these bounds keep
+# function words at 0 while still letting most real triggers fire at least partially.
+# Anchor-word/background coverage is intentionally an ongoing tuning target (see
+# scripts/audit_brain.py), not something these two constants alone can perfect.
+Z_RAMP_START = 1.5
+Z_RAMP_END = 3.5
 
 
 def mean_pool_embeddings(token_embeddings: numpy.ndarray, attention_mask: numpy.ndarray) -> numpy.ndarray:

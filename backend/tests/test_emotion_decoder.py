@@ -1,51 +1,75 @@
 import pytest
 
 from eternalfly.emotion_decoder import (
-    RollingAverage,
+    ExponentialMovingAverage,
     compute_emotions,
     compute_rating,
     pool_rates_to_valence_arousal,
 )
 
 
-def test_rolling_average_raises_on_non_positive_window_size():
-    with pytest.raises(ValueError):
-        RollingAverage(window_size=0)
+def test_exponential_moving_average_raises_on_non_positive_time_constant():
+    with pytest.raises(ValueError, match="time_constant_ms"):
+        ExponentialMovingAverage(time_constant_ms=0.0)
 
 
-def test_rolling_average_raises_on_non_integer_window_size():
-    with pytest.raises(ValueError):
-        RollingAverage(window_size=2.5)
+def test_exponential_moving_average_raises_on_non_positive_elapsed_ms():
+    average = ExponentialMovingAverage(time_constant_ms=100.0)
+    with pytest.raises(ValueError, match="elapsed_ms"):
+        average.update(1.0, elapsed_ms=0.0)
 
 
-def test_rolling_average_first_update_returns_that_single_value():
-    rolling_average = RollingAverage(window_size=3)
-    assert rolling_average.update(4.0) == 4.0
+def test_exponential_moving_average_first_update_returns_that_single_value():
+    average = ExponentialMovingAverage(time_constant_ms=100.0)
+    assert average.update(4.0, elapsed_ms=1.0) == 4.0
 
 
-def test_rolling_average_returns_mean_of_seen_values_before_window_fills():
-    rolling_average = RollingAverage(window_size=3)
-    rolling_average.update(2.0)
-    assert rolling_average.update(4.0) == 3.0
+def test_exponential_moving_average_moves_toward_a_constant_input_over_time():
+    average = ExponentialMovingAverage(time_constant_ms=10.0)
+    average.update(0.0, elapsed_ms=1.0)
+    for _ in range(200):
+        result = average.update(1.0, elapsed_ms=1.0)
+    assert result == pytest.approx(1.0, abs=1e-6)
 
 
-def test_rolling_average_drops_oldest_values_once_window_is_full():
-    rolling_average = RollingAverage(window_size=2)
-    rolling_average.update(10.0)
-    rolling_average.update(20.0)
-    assert rolling_average.update(30.0) == 25.0
+def test_exponential_moving_average_decays_by_the_expected_factor_after_one_time_constant():
+    import math
+
+    time_constant_ms, dt_ms = 20.0, 1.0
+    average = ExponentialMovingAverage(time_constant_ms=time_constant_ms)
+    average.update(1.0, elapsed_ms=dt_ms)
+    steps = round(time_constant_ms / dt_ms)
+    result = 1.0
+    for _ in range(steps):
+        result = average.update(0.0, elapsed_ms=dt_ms)
+    # After one time constant of decaying toward 0, an EMA should sit near 1/e of its start.
+    assert result == pytest.approx(math.exp(-1.0), abs=0.02)
 
 
-def test_rolling_average_running_sum_stays_correct_across_many_evictions():
-    # Guards the O(1) running-sum implementation: repeatedly evicting values must not
-    # let the running sum drift away from the true mean of the current window.
-    window_size = 5
-    rolling_average = RollingAverage(window_size=window_size)
-    values = [float(value) for value in range(1, 51)]
-    for value in values:
-        result = rolling_average.update(value)
-    expected_mean = sum(values[-window_size:]) / window_size
-    assert result == pytest.approx(expected_mean)
+def test_exponential_moving_average_smaller_dt_relative_to_time_constant_still_converges():
+    average = ExponentialMovingAverage(time_constant_ms=10.0)
+    average.update(0.0, elapsed_ms=0.5)
+    for _ in range(400):
+        result = average.update(1.0, elapsed_ms=0.5)
+    assert result == pytest.approx(1.0, abs=1e-6)
+
+
+def test_exponential_moving_average_a_single_large_elapsed_ms_update_matches_many_small_ones():
+    # A frame spanning 20ms in one update() call must behave like 20 separate 1ms
+    # updates toward the same target value (this is what lets reading_session.py call
+    # update() once per variable-sized frame instead of once per raw simulation step).
+    time_constant_ms = 15.0
+    single_call_average = ExponentialMovingAverage(time_constant_ms)
+    single_call_average.update(0.0, elapsed_ms=1.0)
+    result_single = single_call_average.update(1.0, elapsed_ms=20.0)
+
+    many_calls_average = ExponentialMovingAverage(time_constant_ms)
+    many_calls_average.update(0.0, elapsed_ms=1.0)
+    result_many = 0.0
+    for _ in range(20):
+        result_many = many_calls_average.update(1.0, elapsed_ms=1.0)
+
+    assert result_single == pytest.approx(result_many, abs=1e-9)
 
 
 def test_pool_rates_to_valence_arousal_scales_positive_valence_by_its_own_ceiling():

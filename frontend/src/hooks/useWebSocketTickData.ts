@@ -5,14 +5,17 @@ import type { TickData } from "../types";
 export type AutoplayMode = "off" | "restart" | "shuffle";
 
 /** A playback control message sent to the backend over the same WebSocket the ticks
- * arrive on (see eternalfly/server.py's stream_ticks control-message handling). */
+ * arrive on (see eternalfly/server.py's stream_ticks control-message handling). Reading
+ * speed is words-per-minute only now: each word always gets a fixed amount of the
+ * fly's own simulated brain time (see reading_session.py), so there is no more
+ * separate "speed multiplier" - words-per-minute just changes how much simulated time
+ * is advanced per real second. */
 export type ControlMessage =
   | { type: "set_paused"; paused: boolean }
-  | { type: "set_speed_multiplier"; value: number }
   | { type: "set_words_per_minute"; value: number }
   | { type: "set_autoplay_mode"; mode: AutoplayMode };
 
-/** Raw JSON shape sent by eternalfly/server.py's tick_result_to_json (snake_case dataclass fields). */
+/** Raw JSON shape sent by eternalfly/server.py's frame_result_to_json (snake_case dataclass fields). */
 type RawTick = {
   current_word: string | null;
   page_progress: number;
@@ -21,7 +24,12 @@ type RawTick = {
   emotions: Record<string, number>;
   rating_0_10: number;
   region_activity: Record<string, number>;
+  behaviors: Record<string, number>;
+  senses: Record<string, number>;
   neuropil_activity: Record<string, number>;
+  steps_simulated: number;
+  spikes_per_second: number;
+  achieved_words_per_minute: number;
   wants_new_book: boolean;
   book_finished: boolean;
 };
@@ -36,7 +44,12 @@ function toTickData(raw: RawTick): TickData {
     emotions: raw.emotions,
     rating0To10: raw.rating_0_10,
     regionActivity: raw.region_activity,
+    behaviors: raw.behaviors,
+    senses: raw.senses,
     neuropilActivity: raw.neuropil_activity,
+    stepsSimulated: raw.steps_simulated,
+    spikesPerSecond: raw.spikes_per_second,
+    achievedWordsPerMinute: raw.achieved_words_per_minute,
     wantsNewBook: raw.wants_new_book,
     bookFinished: raw.book_finished,
   };

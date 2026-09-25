@@ -1,14 +1,22 @@
 import asyncio
+import contextlib
 import sqlite3
 import threading
 import time
 
 import ebooklib.epub
+import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from eternalfly.reading_session import TickResult
-from eternalfly.server import create_app, tick_result_to_json
+from eternalfly.reading_session import FrameResult
+from eternalfly.server import (
+    _run_lookahead_loop,
+    compute_achieved_words_per_minute,
+    compute_step_count,
+    create_app,
+    frame_result_to_json,
+)
 
 _ZERO_EMOTIONS = {
     "joy": 0.0,
@@ -20,32 +28,32 @@ _ZERO_EMOTIONS = {
     "anger": 0.0,
     "anticipation": 0.0,
 }
+_ZERO_REGION_ACTIVITY = {"reward": 0.0, "punishment": 0.0, "arousal": 0.0}
+_ZERO_BEHAVIORS = {"escape": 0.0, "feeding": 0.0, "backing": 0.0, "turn_left": 0.0, "turn_right": 0.0}
 
-SAMPLE_TICK_RESULT = TickResult(
+SAMPLE_FRAME_RESULT = FrameResult(
     current_word="hello",
     page_progress=0.5,
     words_read=5,
     total_words=10,
     emotions={
-        "joy": 0.1,
-        "trust": 0.2,
-        "fear": 0.3,
-        "surprise": 0.4,
-        "sadness": 0.5,
-        "disgust": 0.6,
-        "anger": 0.7,
-        "anticipation": 0.8,
+        "joy": 0.1, "trust": 0.2, "fear": 0.3, "surprise": 0.4,
+        "sadness": 0.5, "disgust": 0.6, "anger": 0.7, "anticipation": 0.8,
     },
     rating_0_10=6.5,
-    region_activity={"approach": 0.1, "avoidance": 0.2, "arousal": 0.3},
+    region_activity={"reward": 0.1, "punishment": 0.2, "arousal": 0.3},
+    behaviors=_ZERO_BEHAVIORS,
+    senses={"sweet": 0.4},
     neuropil_activity={"ME_L": 0.4, "MB_CA_R": 0.5},
+    steps_simulated=150,
+    spikes_per_second=1234.5,
     wants_new_book=False,
     book_finished=False,
 )
 
 
-def test_tick_result_to_json_returns_dict_with_exact_keys_and_values():
-    result = tick_result_to_json(SAMPLE_TICK_RESULT)
+def test_frame_result_to_json_returns_dict_with_exact_keys_and_values_plus_achieved_wpm():
+    result = frame_result_to_json(SAMPLE_FRAME_RESULT, achieved_words_per_minute=142.0)
 
     assert result == {
         "current_word": "hello",
@@ -53,76 +61,135 @@ def test_tick_result_to_json_returns_dict_with_exact_keys_and_values():
         "words_read": 5,
         "total_words": 10,
         "emotions": {
-            "joy": 0.1,
-            "trust": 0.2,
-            "fear": 0.3,
-            "surprise": 0.4,
-            "sadness": 0.5,
-            "disgust": 0.6,
-            "anger": 0.7,
-            "anticipation": 0.8,
+            "joy": 0.1, "trust": 0.2, "fear": 0.3, "surprise": 0.4,
+            "sadness": 0.5, "disgust": 0.6, "anger": 0.7, "anticipation": 0.8,
         },
         "rating_0_10": 6.5,
-        "region_activity": {"approach": 0.1, "avoidance": 0.2, "arousal": 0.3},
+        "region_activity": {"reward": 0.1, "punishment": 0.2, "arousal": 0.3},
+        "behaviors": _ZERO_BEHAVIORS,
+        "senses": {"sweet": 0.4},
         "neuropil_activity": {"ME_L": 0.4, "MB_CA_R": 0.5},
+        "steps_simulated": 150,
+        "spikes_per_second": 1234.5,
         "wants_new_book": False,
         "book_finished": False,
+        "achieved_words_per_minute": 142.0,
     }
 
 
+def test_compute_step_count_targets_the_requested_words_per_minute():
+    # 1 second elapsed, 60 wpm (1 word/s), sim_ms_per_word=150, dt_ms=1
+    # -> target_sim_ms = 1 * 1 * 150 = 150 steps.
+    assert compute_step_count(elapsed_seconds=1.0, words_per_minute=60.0, sim_ms_per_word=150.0, dt_ms=1.0) == 150
+
+
+def test_compute_step_count_scales_with_elapsed_time():
+    assert compute_step_count(elapsed_seconds=2.0, words_per_minute=60.0, sim_ms_per_word=150.0, dt_ms=1.0) == 300
+
+
+def test_compute_step_count_returns_zero_for_non_positive_elapsed_seconds():
+    assert compute_step_count(elapsed_seconds=0.0, words_per_minute=150.0, sim_ms_per_word=150.0, dt_ms=1.0) == 0
+    assert compute_step_count(elapsed_seconds=-1.0, words_per_minute=150.0, sim_ms_per_word=150.0, dt_ms=1.0) == 0
+
+
+def test_compute_step_count_returns_zero_for_non_positive_words_per_minute():
+    assert compute_step_count(elapsed_seconds=1.0, words_per_minute=0.0, sim_ms_per_word=150.0, dt_ms=1.0) == 0
+
+
+def test_compute_step_count_respects_dt_ms_larger_than_one():
+    # target_sim_ms = 1 * 1 * 150 = 150, dt_ms=2 -> 75 steps.
+    assert compute_step_count(elapsed_seconds=1.0, words_per_minute=60.0, sim_ms_per_word=150.0, dt_ms=2.0) == 75
+
+
+def test_compute_achieved_words_per_minute_converts_words_delta_to_per_minute_rate():
+    # 5 words in 2 seconds -> 2.5 words/s -> 150 words/min.
+    assert compute_achieved_words_per_minute(words_delta=5, elapsed_seconds=2.0) == pytest.approx(150.0)
+
+
+def test_compute_achieved_words_per_minute_returns_zero_for_non_positive_elapsed_seconds():
+    assert compute_achieved_words_per_minute(words_delta=5, elapsed_seconds=0.0) == 0.0
+
+
+def test_run_lookahead_loop_calls_precompute_upcoming_words_repeatedly():
+    calls: list[int] = []
+
+    class FakeLookaheadSession:
+        def precompute_upcoming_words(self, word_count: int) -> None:
+            calls.append(word_count)
+
+    async def run_a_few_iterations() -> None:
+        task = asyncio.create_task(_run_lookahead_loop(FakeLookaheadSession(), word_count=7, interval_seconds=0))
+        while len(calls) < 3:
+            await asyncio.sleep(0)
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    asyncio.run(run_a_few_iterations())
+
+    assert calls[:3] == [7, 7, 7]
+
+
 class FakeIncrementingSession:
-    """Fake session whose successive tick() calls return distinguishably different results."""
+    """Fake session whose successive advance() calls return distinguishably different
+    results, ignoring step_count's actual value (real elapsed-time-derived step counts
+    aren't deterministic enough to assert on at this level - see test_server.py's
+    compute_step_count tests for that math in isolation)."""
+
+    sim_ms_per_word = 150.0
+    dt_ms = 1.0
 
     def __init__(self):
-        self._tick_count = 0
+        self._call_count = 0
         self.received_tokens: list[str] | None = None
 
     def load_new_text(self, tokens: list[str]) -> None:
         """Record tokens, so this fake can also exercise /load-book alongside /ws."""
         self.received_tokens = tokens
 
-    def tick(self) -> TickResult:
-        """Return a TickResult whose rating increases by one on each successive call."""
-        self._tick_count += 1
-        return TickResult(
-            current_word=f"word{self._tick_count}",
-            page_progress=0.1 * self._tick_count,
-            words_read=self._tick_count,
+    def precompute_upcoming_words(self, word_count: int) -> None:
+        """No-op: exercised by create_app's background lookahead loop."""
+
+    def advance(self, step_count: int) -> FrameResult:
+        """Return a FrameResult whose rating increases by one on each successive call."""
+        self._call_count += 1
+        return FrameResult(
+            current_word=f"word{self._call_count}",
+            page_progress=0.1 * self._call_count,
+            words_read=self._call_count,
             total_words=10,
             emotions=_ZERO_EMOTIONS,
-            rating_0_10=float(self._tick_count),
-            region_activity={"approach": 0.0, "avoidance": 0.0, "arousal": 0.0},
+            rating_0_10=float(self._call_count),
+            region_activity=_ZERO_REGION_ACTIVITY,
+            behaviors=_ZERO_BEHAVIORS,
+            senses={},
             neuropil_activity={},
+            steps_simulated=step_count,
+            spikes_per_second=0.0,
             wants_new_book=False,
         )
 
 
-def test_ws_first_message_matches_json_of_first_tick():
+def test_ws_first_message_reflects_first_advance_call():
     fake_session = FakeIncrementingSession()
-    app = create_app(fake_session, tick_interval_seconds=0)
+    app = create_app(fake_session, frame_interval_seconds=0)
     client = TestClient(app)
 
     with client.websocket_connect("/ws") as websocket:
         first_message = websocket.receive_json()
 
-    assert first_message == tick_result_to_json(
-        TickResult(
-            current_word="word1",
-            page_progress=0.1,
-            words_read=1,
-            total_words=10,
-            emotions=_ZERO_EMOTIONS,
-            rating_0_10=1.0,
-            region_activity={"approach": 0.0, "avoidance": 0.0, "arousal": 0.0},
-            neuropil_activity={},
-            wants_new_book=False,
-        )
-    )
+    assert first_message["current_word"] == "word1"
+    assert first_message["rating_0_10"] == 1.0
+    assert first_message["total_words"] == 10
+    # Regression check: the very first frame has no genuine elapsed-time baseline yet
+    # (see stream_ticks) - it must report 0.0, never a spurious huge/tiny rate from
+    # dividing by an almost-zero elapsed_seconds.
+    assert first_message["achieved_words_per_minute"] == 0.0
 
 
-def test_ws_second_message_reflects_second_tick_call_not_a_cached_first_result():
+def test_ws_second_message_reflects_second_advance_call_not_a_cached_first_result():
     fake_session = FakeIncrementingSession()
-    app = create_app(fake_session, tick_interval_seconds=0)
+    app = create_app(fake_session, frame_interval_seconds=0)
     client = TestClient(app)
 
     with client.websocket_connect("/ws") as websocket:
@@ -130,14 +197,29 @@ def test_ws_second_message_reflects_second_tick_call_not_a_cached_first_result()
         second_message = websocket.receive_json()
 
     assert first_message["current_word"] == "word1"
-    assert first_message["rating_0_10"] == 1.0
     assert second_message["current_word"] == "word2"
     assert second_message["rating_0_10"] == 2.0
 
 
+def test_app_startup_launches_the_background_lookahead_loop():
+    fake_session = FakeIncrementingSession()
+    calls = []
+    fake_session.precompute_upcoming_words = lambda word_count: calls.append(word_count)
+    app = create_app(fake_session, lookahead_word_count=9, lookahead_interval_seconds=0)
+
+    # FastAPI's startup event (which schedules _run_lookahead_loop) only fires when
+    # TestClient is used as a context manager - every other test in this file uses it
+    # directly, deliberately not triggering startup (irrelevant to what they check).
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as websocket:
+            websocket.receive_json()
+
+    assert 9 in calls
+
+
 def test_ws_client_disconnect_mid_loop_does_not_raise_unhandled_exception():
     fake_session = FakeIncrementingSession()
-    app = create_app(fake_session, tick_interval_seconds=0)
+    app = create_app(fake_session, frame_interval_seconds=0)
     client = TestClient(app)
 
     with client.websocket_connect("/ws") as websocket:
@@ -147,7 +229,7 @@ def test_ws_client_disconnect_mid_loop_does_not_raise_unhandled_exception():
 
 class DisconnectingWebSocket:
     """Fake WebSocket whose send_json immediately raises WebSocketDisconnect, simulating
-    a client that has already gone away by the time the server tries to send a tick."""
+    a client that has already gone away by the time the server tries to send a frame."""
 
     async def accept(self) -> None:
         """No-op accept, mirroring the real WebSocket's accept() signature."""
@@ -163,7 +245,7 @@ class DisconnectingWebSocket:
 
 def test_ws_route_endpoint_returns_cleanly_when_send_raises_websocket_disconnect():
     fake_session = FakeIncrementingSession()
-    app = create_app(fake_session, tick_interval_seconds=0)
+    app = create_app(fake_session, frame_interval_seconds=0)
     websocket_route = next(route for route in app.routes if getattr(route, "path", None) == "/ws")
 
     asyncio.run(websocket_route.endpoint(DisconnectingWebSocket()))
@@ -174,6 +256,9 @@ class FakeSessionTrackingLoadNewText:
     empty-tokens guard so /load-book's error handling can be exercised without a real
     ReadingSession."""
 
+    sim_ms_per_word = 150.0
+    dt_ms = 1.0
+
     def __init__(self):
         self.received_tokens = None
 
@@ -182,6 +267,9 @@ class FakeSessionTrackingLoadNewText:
         if not tokens:
             raise ValueError("tokens must not be empty")
         self.received_tokens = tokens
+
+    def precompute_upcoming_words(self, word_count: int) -> None:
+        """No-op: exercised by create_app's background lookahead loop."""
 
 
 def test_load_book_endpoint_returns_ok_and_total_words_for_valid_txt_file(tmp_path):
@@ -287,7 +375,7 @@ def test_load_book_endpoint_does_not_block_the_event_loop_while_parsing(tmp_path
 
     monkeypatch.setattr("eternalfly.server.load_and_tokenize_file", slow_load_and_tokenize_file)
     fake_session = FakeIncrementingSession()
-    client = TestClient(create_app(fake_session, tick_interval_seconds=0))
+    client = TestClient(create_app(fake_session, frame_interval_seconds=0))
 
     with client.websocket_connect("/ws") as websocket:
         websocket.receive_json()
@@ -296,11 +384,11 @@ def test_load_book_endpoint_does_not_block_the_event_loop_while_parsing(tmp_path
         )
         load_book_thread.start()
         # If /load-book blocked the event loop, this would hang until the slow parse
-        # finishes; it should instead keep receiving ticks the whole time.
-        second_tick = websocket.receive_json()
+        # finishes; it should instead keep receiving frames the whole time.
+        second_frame = websocket.receive_json()
         load_book_thread.join(timeout=5)
 
-    assert second_tick["current_word"] == "word2"
+    assert second_frame["current_word"] == "word2"
     assert not load_book_thread.is_alive()
 
 
@@ -395,110 +483,110 @@ def test_books_in_folder_endpoint_returns_404_for_a_missing_folder(tmp_path):
 
 
 class FakeControllableSession:
-    """Fake session for exercising playback control messages: records every control
-    call it receives, and can be scripted to report the book as finished from a given
-    tick onward (mirroring how a real ReadingSession's book_finished stays True)."""
+    """Fake session for exercising playback control: records every advance() call, and
+    can be scripted to report the book as finished from a given call onward (mirroring
+    how a real ReadingSession's book_finished stays True)."""
 
-    def __init__(self, finished_on_tick: int | None = None):
-        self._tick_count = 0
-        self._finished_on_tick = finished_on_tick
-        self.paused_calls: list[bool] = []
-        self.speed_multiplier_calls: list[float] = []
+    sim_ms_per_word = 150.0
+    dt_ms = 1.0
+
+    def __init__(self, finished_on_call: int | None = None):
+        self._call_count = 0
+        self._finished_on_call = finished_on_call
+        self.advance_step_counts: list[int] = []
         self.restart_call_count = 0
         self.received_tokens: list[str] | None = None
 
-    def tick(self) -> TickResult:
-        """Return a scripted TickResult, finished from self._finished_on_tick onward."""
-        self._tick_count += 1
-        book_finished = self._finished_on_tick is not None and self._tick_count >= self._finished_on_tick
-        return TickResult(
-            current_word=None if book_finished else f"word{self._tick_count}",
-            page_progress=1.0 if book_finished else 0.1 * self._tick_count,
-            words_read=self._tick_count,
+    def advance(self, step_count: int) -> FrameResult:
+        """Return a scripted FrameResult, finished from self._finished_on_call onward."""
+        self.advance_step_counts.append(step_count)
+        self._call_count += 1
+        book_finished = self._finished_on_call is not None and self._call_count >= self._finished_on_call
+        return FrameResult(
+            current_word=None if book_finished else f"word{self._call_count}",
+            page_progress=1.0 if book_finished else 0.1 * self._call_count,
+            words_read=self._call_count,
             total_words=10,
             emotions=_ZERO_EMOTIONS,
-            rating_0_10=float(self._tick_count),
-            region_activity={"approach": 0.0, "avoidance": 0.0, "arousal": 0.0},
+            rating_0_10=float(self._call_count),
+            region_activity=_ZERO_REGION_ACTIVITY,
+            behaviors=_ZERO_BEHAVIORS,
+            senses={},
             neuropil_activity={},
+            steps_simulated=step_count,
+            spikes_per_second=0.0,
             wants_new_book=False,
             book_finished=book_finished,
         )
 
-    def set_paused(self, paused: bool) -> None:
-        """Record the requested paused state."""
-        self.paused_calls.append(paused)
-
-    def set_speed_multiplier(self, multiplier: float) -> None:
-        """Record the requested speed multiplier."""
-        self.speed_multiplier_calls.append(multiplier)
-
     def restart(self) -> None:
-        """Record the restart and reset word progress, mirroring how the real
-        ReadingSession.restart() makes the very next tick's book_finished False again.
-        Also disarms further finishing: with tick_interval_seconds=0 the server-side
-        loop can race arbitrarily far ahead of the test's receive_json() calls, so a
-        test asserting "exactly once" needs the book to never finish a second time
-        rather than racing a fixed number of extra ticks against wall-clock luck."""
+        """Record the restart and reset progress, mirroring how the real
+        ReadingSession.restart() makes the very next advance()'s book_finished False
+        again. Also disarms further finishing: with frame_interval_seconds=0 the
+        server-side loop can race arbitrarily far ahead of the test's receive_json()
+        calls, so a test asserting "exactly once" needs the book to never finish a
+        second time rather than racing a fixed number of extra frames against luck."""
         self.restart_call_count += 1
-        self._tick_count = 0
-        self._finished_on_tick = None
+        self._call_count = 0
+        self._finished_on_call = None
 
     def load_new_text(self, tokens: list[str]) -> None:
-        """Record the tokens a shuffle-loaded book was swapped in with, and reset word
+        """Record the tokens a shuffle-loaded book was swapped in with, and reset
         progress like the real ReadingSession.load_new_text() does (see restart()'s
         docstring for why finishing is also disarmed here)."""
         self.received_tokens = tokens
-        self._tick_count = 0
-        self._finished_on_tick = None
+        self._call_count = 0
+        self._finished_on_call = None
+
+    def precompute_upcoming_words(self, word_count: int) -> None:
+        """No-op: exercised by create_app's background lookahead loop."""
 
 
 def _drain_websocket_until(websocket, condition, max_messages: int = 500) -> None:
-    """Keep receiving tick messages from websocket until condition() is true, raising
-    if it isn't met within max_messages ticks (bounds an otherwise-infinite poll loop)."""
+    """Keep receiving frame messages from websocket until condition() is true, raising
+    if it isn't met within max_messages frames (bounds an otherwise-infinite poll loop)."""
     for _ in range(max_messages):
         if condition():
             return
         websocket.receive_json()
     if not condition():
-        raise AssertionError(f"condition not met within {max_messages} ticks")
+        raise AssertionError(f"condition not met within {max_messages} frames")
 
 
-def test_ws_set_paused_control_message_calls_session_set_paused():
+def test_ws_set_paused_advances_with_zero_step_count_only():
     fake_session = FakeControllableSession()
-    client = TestClient(create_app(fake_session, tick_interval_seconds=0))
+    client = TestClient(create_app(fake_session, frame_interval_seconds=0))
 
     with client.websocket_connect("/ws") as websocket:
+        websocket.receive_json()
         websocket.send_json({"type": "set_paused", "paused": True})
-        _drain_websocket_until(websocket, lambda: True in fake_session.paused_calls)
+        # Drain enough frames to let the pause message actually be received and
+        # applied (frame_interval_seconds=0 means the send loop can race ahead of the
+        # receiver task), then check every advance() call from here on used step_count=0.
+        for _ in range(20):
+            websocket.receive_json()
+        step_counts_once_paused = len(fake_session.advance_step_counts)
 
-    assert True in fake_session.paused_calls
+        for _ in range(20):
+            websocket.receive_json()
+
+    assert all(step_count == 0 for step_count in fake_session.advance_step_counts[step_counts_once_paused:])
 
 
-def test_ws_set_speed_multiplier_control_message_calls_session_set_speed_multiplier():
+def test_ws_set_words_per_minute_control_message_is_accepted_without_error():
     fake_session = FakeControllableSession()
-    client = TestClient(create_app(fake_session, tick_interval_seconds=0))
-
-    with client.websocket_connect("/ws") as websocket:
-        websocket.send_json({"type": "set_speed_multiplier", "value": 2.5})
-        _drain_websocket_until(websocket, lambda: 2.5 in fake_session.speed_multiplier_calls)
-
-    assert 2.5 in fake_session.speed_multiplier_calls
-
-
-def test_ws_set_words_per_minute_control_message_converts_to_speed_multiplier():
-    fake_session = FakeControllableSession()
-    client = TestClient(create_app(fake_session, tick_interval_seconds=0, base_words_per_minute=120.0))
+    client = TestClient(create_app(fake_session, frame_interval_seconds=0))
 
     with client.websocket_connect("/ws") as websocket:
         websocket.send_json({"type": "set_words_per_minute", "value": 600.0})
-        _drain_websocket_until(websocket, lambda: 5.0 in fake_session.speed_multiplier_calls)
+        first_message = websocket.receive_json()
 
-    assert 5.0 in fake_session.speed_multiplier_calls  # 600 wpm / 120 base wpm
+    assert first_message["current_word"] == "word1"
 
 
 def test_ws_autoplay_mode_off_never_restarts_when_book_finishes():
-    fake_session = FakeControllableSession(finished_on_tick=20)
-    client = TestClient(create_app(fake_session, tick_interval_seconds=0))
+    fake_session = FakeControllableSession(finished_on_call=20)
+    client = TestClient(create_app(fake_session, frame_interval_seconds=0))
 
     with client.websocket_connect("/ws") as websocket:
         for _ in range(40):
@@ -508,12 +596,8 @@ def test_ws_autoplay_mode_off_never_restarts_when_book_finishes():
 
 
 def test_ws_autoplay_mode_restart_restarts_session_exactly_once_when_book_finishes():
-    # finished_on_tick=20 gives the receiver task plenty of ticks to apply the mode
-    # before the book ever finishes. Once it restarts once, FakeControllableSession
-    # disarms further finishing, so however far the send loop races ahead while the
-    # test isn't looking, restart_call_count can never exceed 1.
-    fake_session = FakeControllableSession(finished_on_tick=20)
-    client = TestClient(create_app(fake_session, tick_interval_seconds=0))
+    fake_session = FakeControllableSession(finished_on_call=20)
+    client = TestClient(create_app(fake_session, frame_interval_seconds=0))
 
     with client.websocket_connect("/ws") as websocket:
         websocket.send_json({"type": "set_autoplay_mode", "mode": "restart"})
@@ -550,8 +634,8 @@ def _create_minimal_calibre_library_with_real_txt_book(tmp_path):
 
 def test_ws_autoplay_mode_shuffle_loads_a_calibre_book_when_book_finishes(tmp_path):
     library_path = _create_minimal_calibre_library_with_real_txt_book(tmp_path)
-    fake_session = FakeControllableSession(finished_on_tick=20)
-    client = TestClient(create_app(fake_session, tick_interval_seconds=0, calibre_library_path=library_path))
+    fake_session = FakeControllableSession(finished_on_call=20)
+    client = TestClient(create_app(fake_session, frame_interval_seconds=0, calibre_library_path=library_path))
 
     with client.websocket_connect("/ws") as websocket:
         websocket.send_json({"type": "set_autoplay_mode", "mode": "shuffle"})
@@ -561,8 +645,8 @@ def test_ws_autoplay_mode_shuffle_loads_a_calibre_book_when_book_finishes(tmp_pa
 
 
 def test_ws_autoplay_mode_shuffle_falls_back_to_restart_when_no_library_configured():
-    fake_session = FakeControllableSession(finished_on_tick=20)
-    client = TestClient(create_app(fake_session, tick_interval_seconds=0))
+    fake_session = FakeControllableSession(finished_on_call=20)
+    client = TestClient(create_app(fake_session, frame_interval_seconds=0))
 
     with client.websocket_connect("/ws") as websocket:
         websocket.send_json({"type": "set_autoplay_mode", "mode": "shuffle"})

@@ -1,6 +1,7 @@
-"""One-off script: build the simulation-ready connectome cache from the downloaded
-FlyWire files (Milestone 0's final step). Composes already-tested eternalfly functions;
-not unit-tested itself, same convention as download_connectome.py."""
+"""One-off script: build the simulation-ready connectome cache (real Dale-signed
+synapses, named cell groups, neuropil readout, neuron scene positions) from the
+downloaded FlyWire files and cell-type annotations. Composes already-tested eternalfly
+functions; not unit-tested itself, same convention as download_connectome.py."""
 
 from pathlib import Path
 
@@ -17,20 +18,11 @@ from eternalfly.cell_groups import (
     select_cell_group,
     select_remaining_olfactory_receptor_neurons,
 )
-from eternalfly.connectome import (
-    build_signed_adjacency,
-    neuropil_readout_matrix,
-    select_pool_by_activity,
-    split_mbons_by_dopamine_input,
-)
+from eternalfly.connectome import build_signed_adjacency, neuropil_readout_matrix, split_mbons_by_dopamine_input
 from eternalfly.data_prep import (
     aggregate_connections_by_neuron_pair,
-    aggregate_neuron_activity_by_neuropil,
-    aggregate_neurotransmitter_by_neuron,
     build_neuron_index,
-    dominant_neurotransmitter_labels,
     filter_edges_to_known_neurons,
-    filter_ids_to_known_set,
     load_feather_table,
     load_neuron_annotations,
     load_root_ids,
@@ -43,94 +35,6 @@ DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 CACHE_DIR = DATA_DIR / "cache"
 ANNOTATIONS_PATH = DATA_DIR / "Supplemental_file1_neuron_annotations.tsv"
 FRONTEND_MODELS_DIR = Path(__file__).resolve().parent.parent.parent / "frontend" / "public" / "models"
-
-# Neuropil groups per pool, chosen for biological plausibility (see plan docs):
-# optic lobe (visual) for sensory input, mushroom body medial/vertical lobes for
-# reward/punishment valence, central complex for arousal.
-POOL_NEUROPILS = {
-    "sensory_input": ["ME_L", "ME_R", "LO_L", "LO_R"],
-    "approach": ["MB_ML_L", "MB_ML_R"],
-    "avoidance": ["MB_VL_L", "MB_VL_R"],
-    "arousal": ["EB", "FB"],
-}
-POOL_TOP_FRACTION = 0.05
-
-# The medial mushroom body lobe is real Drosophila's reward-learning compartment
-# (PAM cluster dopaminergic input); the vertical lobe is the punishment-learning
-# compartment (PPL1 cluster). Reusing approach/avoidance's neuropils here, but this
-# time picking out the real dopaminergic (not just "active") presynaptic neurons that
-# broadcast into them, for a genuine, actively-excitatory reward/punishment channel
-# (see reading_session.py's use of these pools, and text_encoder.project_valence_to_currents).
-VALENCE_DOPAMINERGIC_NEUROPILS = {
-    "valence_positive": POOL_NEUROPILS["approach"],
-    "valence_negative": POOL_NEUROPILS["avoidance"],
-}
-
-# Octopamine is Drosophila's real arousal/stress neuromodulator (the functional
-# analog of noradrenaline): broadly excitatory, promotes wakefulness/alertness, and
-# is a well-established real input to the central complex (our "arousal" pool's
-# neuropils) — the same role dopamine plays for approach/avoidance, but for arousal.
-AROUSAL_OCTOPAMINERGIC_NEUROPILS = {
-    "arousal_input": POOL_NEUROPILS["arousal"],
-}
-
-
-def build_pool_indices(
-    post_neuropil_table,
-    root_ids: numpy.ndarray,
-    neuron_id_to_index: dict[int, int],
-    pool_neuropils: dict[str, list[str]],
-) -> dict[str, numpy.ndarray]:
-    """Select each pool's neuron indices: top POOL_TOP_FRACTION most postsynaptically
-    active proofread neurons within that pool's target neuropils."""
-    pool_indices = {}
-    for pool_name, target_neuropils in pool_neuropils.items():
-        candidate_ids, candidate_counts = aggregate_neuron_activity_by_neuropil(
-            post_neuropil_table, target_neuropils, "post_pt_root_id"
-        )
-        known_ids, known_counts = filter_ids_to_known_set(candidate_ids, candidate_counts, root_ids)
-        selected_ids = select_pool_by_activity(known_ids, known_counts, POOL_TOP_FRACTION)
-        pool_indices[pool_name] = numpy.array(
-            [neuron_id_to_index[int(neuron_id)] for neuron_id in selected_ids]
-        )
-    return pool_indices
-
-
-def build_neurotransmitter_filtered_pool_indices(
-    connections_table,
-    pre_neuropil_table,
-    root_ids: numpy.ndarray,
-    neuron_id_to_index: dict[int, int],
-    neurotransmitter_label: str,
-    pool_neuropils: dict[str, list[str]],
-) -> dict[str, numpy.ndarray]:
-    """Select each pool's neuron indices: proofread presynaptic neurons whose own
-    dominant neurotransmitter is neurotransmitter_label (e.g. "da" for dopaminergic
-    reward/punishment, "oct" for octopaminergic arousal), restricted to those
-    synapsing into that pool's target neuropils. Unlike build_pool_indices, keeps
-    every matching neuron rather than a top-activity fraction — being a real,
-    specific-neurotransmitter presynaptic partner of that compartment is already a
-    strong, biologically-motivated filter (a few hundred neurons here, not the
-    thousands build_pool_indices narrows down from)."""
-    per_neuron_nt_table = aggregate_neurotransmitter_by_neuron(connections_table, "pre_pt_root_id")
-    neuron_nt_labels = dominant_neurotransmitter_labels(per_neuron_nt_table)
-    matching_neuron_ids = per_neuron_nt_table["pre_pt_root_id"].to_numpy()[neuron_nt_labels == neurotransmitter_label]
-
-    pool_indices = {}
-    for pool_name, target_neuropils in pool_neuropils.items():
-        candidate_ids, candidate_counts = aggregate_neuron_activity_by_neuropil(
-            pre_neuropil_table, target_neuropils, "pre_pt_root_id"
-        )
-        matches_neurotransmitter = numpy.isin(
-            candidate_ids.astype(numpy.int64), matching_neuron_ids.astype(numpy.int64)
-        )
-        matching_candidate_ids = candidate_ids[matches_neurotransmitter]
-        matching_candidate_counts = candidate_counts[matches_neurotransmitter]
-        known_ids, _known_counts = filter_ids_to_known_set(
-            matching_candidate_ids, matching_candidate_counts, root_ids
-        )
-        pool_indices[pool_name] = numpy.array([neuron_id_to_index[int(neuron_id)] for neuron_id in known_ids])
-    return pool_indices
 
 
 def build_inhibitory_neuron_ids(annotations) -> numpy.ndarray:
@@ -232,11 +136,11 @@ def main() -> None:
     for group_name, indices in sorted(cell_groups.items()):
         print(f"cell group {group_name}: {len(indices)} neurons")
 
-    pre_neuropil_table_for_readout = load_feather_table(DATA_DIR / "per_neuron_neuropil_count_pre_783.feather")
+    pre_neuropil_table = load_feather_table(DATA_DIR / "per_neuron_neuropil_count_pre_783.feather")
     readout_matrix = neuropil_readout_matrix(
-        pre_neuropil_table_for_readout["pre_pt_root_id"].to_numpy(),
-        pre_neuropil_table_for_readout["neuropil"].to_numpy(),
-        pre_neuropil_table_for_readout["count"].to_numpy(),
+        pre_neuropil_table["pre_pt_root_id"].to_numpy(),
+        pre_neuropil_table["neuropil"].to_numpy(),
+        pre_neuropil_table["count"].to_numpy(),
         ALL_NEUROPIL_NAMES,
         root_ids,
     )
@@ -253,32 +157,6 @@ def main() -> None:
     FRONTEND_MODELS_DIR.mkdir(parents=True, exist_ok=True)
     scene_positions.astype(numpy.float32).tofile(FRONTEND_MODELS_DIR / "neuron-positions.bin")
     print("saved neuron positions:", scene_positions.shape, "->", FRONTEND_MODELS_DIR / "neuron-positions.bin")
-
-    post_neuropil_table = load_feather_table(DATA_DIR / "per_neuron_neuropil_count_post_783.feather")
-    pool_indices = build_pool_indices(post_neuropil_table, root_ids, neuron_id_to_index, POOL_NEUROPILS)
-
-    pre_neuropil_table = load_feather_table(DATA_DIR / "per_neuron_neuropil_count_pre_783.feather")
-    pool_indices.update(
-        build_neurotransmitter_filtered_pool_indices(
-            connections_table, pre_neuropil_table, root_ids, neuron_id_to_index, "da", VALENCE_DOPAMINERGIC_NEUROPILS
-        )
-    )
-    pool_indices.update(
-        build_neurotransmitter_filtered_pool_indices(
-            connections_table, pre_neuropil_table, root_ids, neuron_id_to_index, "oct", AROUSAL_OCTOPAMINERGIC_NEUROPILS
-        )
-    )
-
-    numpy.savez(CACHE_DIR / "pool_indices.npz", **pool_indices)
-    for pool_name, indices in pool_indices.items():
-        print(f"pool {pool_name}: {len(indices)} neurons")
-
-    neuropil_single_name_groups = {name: [name] for name in ALL_NEUROPIL_NAMES}
-    neuropil_pool_indices = build_pool_indices(
-        post_neuropil_table, root_ids, neuron_id_to_index, neuropil_single_name_groups
-    )
-    numpy.savez(CACHE_DIR / "neuropil_pool_indices.npz", **neuropil_pool_indices)
-    print(f"neuropil pools: {len(neuropil_pool_indices)} regions")
 
 
 if __name__ == "__main__":

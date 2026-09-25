@@ -285,3 +285,15 @@ def synaptic_step(
         pending_conductance_increments=state.pending_conductance_increments,
     )
     return new_state, spiked_mask.to(final_potential.dtype)
+
+
+def poisson_forced_spikes(drives: torch.Tensor, max_rate_hz: float, dt_ms: float, generator: torch.Generator | None = None) -> torch.Tensor:
+    """Sample a Poisson-process-approximating forced-spike mask for synaptic_step's
+    forced_spike_mask: each neuron's per-step firing probability is
+    drives[i] (0..1, its current real sensory drive - see semantic_encoder.py) times
+    max_rate_hz*dt_ms/1000, clamped to a valid [0, 1] probability. drives may carry one
+    shared value broadcast across a whole channel's pool (every neuron in that channel
+    fires at the same rate) or a per-neuron vector (semantic_odor's per-glomerulus-
+    neuron drive)."""
+    probabilities = torch.clamp(drives * (max_rate_hz * dt_ms / 1000.0), 0.0, 1.0)
+    return torch.rand(probabilities.shape, generator=generator, device=probabilities.device) < probabilities

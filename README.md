@@ -1,16 +1,24 @@
 # EternalFly
 
 Live spiking simulation of the [FlyWire](https://flywire.ai/) fruit fly connectome
-(~139k real neurons, real synaptic connectivity) *reading a book*. Text is tokenized
-and fed into the network as input current; a leaky-integrate-and-fire (LIF) simulation
-runs on the real connectome and its spiking activity is decoded back into
-valence/arousal and per-neuropil brain activity, streamed live to a 3D dashboard.
+(~139k real neurons, real synaptic connectivity) *reading a book, through its own real
+senses*. Text is embedded with a multilingual sentence-embedding model and translated
+into Poisson spikes in the real sensory receptor neurons those words actually match
+(taste, smell, sound, temperature, looming threat, ...); a Shiu et al. 2024
+(Nature 634:210) -validated, event-driven leaky-integrate-and-fire simulation runs on
+the real connectome, and its spiking activity is decoded back into emotions/rating
+(from real downstream mushroom-body output neurons) and real descending/motor readouts
+(escape jump, feeding, turning, ...), streamed live to a 3D dashboard.
 
 ## Architecture
 
-- **`backend/`** — Python/FastAPI. Runs the LIF simulation over the cached FlyWire
-  connectome and streams per-tick results (spikes, emotion, brain region activity) to
-  the frontend over a WebSocket (`/ws`).
+- **`backend/`** — Python/FastAPI. `eternalfly/semantic_encoder.py` turns each word
+  into real sensory drives; `eternalfly/reading_session.py` runs the event-driven LIF
+  simulation (`eternalfly/lif.py`, `eternalfly/synapses.py`) over the cached FlyWire
+  connectome and decodes emotions/behaviors/brain activity from real named cell groups
+  (`eternalfly/cell_groups.py`); `eternalfly/server.py` streams per-frame results over
+  a WebSocket (`/ws`). `eternalfly/brain_loader.py` is the one place that loads the
+  real connectome cache and the real embedding model.
 - **`frontend/`** — React + TypeScript + Three.js (`@react-three/fiber`), packaged as a
   desktop app with [Tauri](https://tauri.app/). Renders the fly/book scene, a 3D brain
   with per-region glow, live neural activity charts, and playback controls.
@@ -23,13 +31,21 @@ Requirements: Python 3.13, Node.js, a CUDA-capable GPU (optional — falls back 
 make install
 ```
 
-The simulation needs the real FlyWire connectome data (not checked into git,
-`backend/data/` is gitignored):
+The simulation needs the real FlyWire connectome data and cell-type annotations (not
+checked into git, `backend/data/` is gitignored) — the first run also downloads the
+~470MB multilingual embedding model (cached by Hugging Face, not project-specific):
 
 ```bash
 cd backend
 .venv\Scripts\python.exe -m scripts.download_connectome
 .venv\Scripts\python.exe -m scripts.build_connectome_cache
+```
+
+To verify the real network's reflexes and calibrate its valence/arousal ceilings
+against the cached connectome:
+
+```bash
+.venv\Scripts\python.exe -m scripts.audit_brain
 ```
 
 ## Running

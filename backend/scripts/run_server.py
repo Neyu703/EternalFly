@@ -1,7 +1,8 @@
-"""Dev script: start the real WebSocket server against the cached connectome and a
-short test text, with uvicorn's auto-reload watching the eternalfly package so `make
-dev` picks up backend code changes without a manual restart. Not unit-tested itself -
-composes already-tested eternalfly functions, mirrors cli_reading_demo.py's setup.
+"""Dev script: start the real WebSocket server against the cached connectome, the real
+multilingual embedding model, and a short built-in test text (see brain_loader.py),
+with uvicorn's auto-reload watching the eternalfly package so `make dev` picks up
+backend code changes without a manual restart. Not unit-tested itself - composes
+already-tested eternalfly functions, mirrors cli_reading_demo.py's setup.
 
 Run as `python -m scripts.run_server` (from backend/, as the Makefile does) so uvicorn's
 reload subprocess can re-import this module by its "scripts.run_server:app" name."""
@@ -9,103 +10,34 @@ reload subprocess can re-import this module by its "scripts.run_server:app" name
 import sys
 from pathlib import Path
 
-import numpy
-import scipy.sparse
 import torch
 import uvicorn
 
-from eternalfly.lif import LIFParameters
-from eternalfly.reading_session import ReadingSession, ReadingSessionConfig
+from eternalfly.brain_loader import build_reading_session
+from eternalfly.reading_session import ReadingSession
 from eternalfly.server import create_app
 from eternalfly.text_encoder import tokenize_text
 
-DATA_DIR = Path(__file__).resolve().parent.parent / "data"
-CACHE_DIR = DATA_DIR / "cache"
 CALIBRE_LIBRARY_PATH = Path.home() / "Calibre-Bibliothek"
 
 TEST_TEXT = """
-The dragon roared and the castle shook with fear. Suddenly, the brave knight
-drew his sword and charged forward, heart pounding with excitement. It was
-the most thrilling battle anyone had ever seen. Afterwards, everyone sat
-quietly and stared at the wall for a long, dull, uneventful hour.
+Der Drache brüllte und die Burg erzitterte vor Angst. Plötzlich zog der
+tapfere Ritter sein Schwert und griff an, sein Herz raste vor Aufregung. Danach
+aß er Honig und lächelte glücklich. Aber ein Monster griff an! Alle rannten in
+Panik davon. Afterwards, everyone sat quietly and stared at the wall for a
+long, dull, uneventful hour.
 """
-
-WEIGHT_SCALE = 0.15
-INPUT_CURRENT_SCALE = 30.0
-VALENCE_WEIGHT = 1.0  # calibrated against the real connectome, see scripts/calibrate_sentiment.py
-AROUSAL_WEIGHT = 1.0  # calibrated against the real connectome, see scripts/calibrate_sentiment.py
-TICKS_PER_WORD = 10
-TICK_INTERVAL_SECONDS = 0.05
-CONTEXT_WORD_COUNT = 500  # how many recent words the boredom/engagement judgment averages over
-DISPLAY_WORD_COUNT = 10  # how many recent words the *displayed* rating/emotions/region_activity average over
-BASE_WORDS_PER_MINUTE = 60.0 / (TICKS_PER_WORD * TICK_INTERVAL_SECONDS)  # reading pace at speed_multiplier=1.0
-
-# The dopaminergic/octopaminergic pools are a few hundred neurons out of ~139k, so their
-# raw spike rates never get near 1.0 even under maximally extreme input - these are the
-# real achievable ceilings measured against the cached connectome (see
-# scripts/calibrate_sentiment.py), used to rescale valence/arousal into a full -1..1/0..1
-# range instead of a barely-moving sliver of it.
-POSITIVE_VALENCE_CEILING = 0.18
-NEGATIVE_VALENCE_CEILING = 0.03
-AROUSAL_CEILING = 0.08
-
-
-def load_adjacency_as_torch_sparse(device: str) -> torch.Tensor:
-    """Load the cached signed adjacency matrix, scaled by WEIGHT_SCALE, as a torch sparse CSR tensor."""
-    scipy_matrix = scipy.sparse.load_npz(CACHE_DIR / "adjacency.npz").tocsr()
-    row_pointers = torch.as_tensor(scipy_matrix.indptr, dtype=torch.int64)
-    column_indices = torch.as_tensor(scipy_matrix.indices, dtype=torch.int64)
-    values = torch.as_tensor(scipy_matrix.data, dtype=torch.float32) * WEIGHT_SCALE
-    return torch.sparse_csr_tensor(row_pointers, column_indices, values, size=scipy_matrix.shape, device=device)
-
-
-def load_pool_indices(cache_path: Path, device: str) -> dict[str, torch.Tensor]:
-    """Load a cached per-pool neuron index .npz file as a dict of torch tensors."""
-    raw_pools = numpy.load(cache_path)
-    return {name: torch.as_tensor(raw_pools[name], dtype=torch.int64, device=device) for name in raw_pools.files}
 
 
 def build_session() -> ReadingSession:
-    """Build a ReadingSession over the real connectome and the built-in test text."""
+    """Build a real ReadingSession over the real cached connectome, the real
+    multilingual embedding model, and the built-in test text."""
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    adjacency_matrix = load_adjacency_as_torch_sparse(device)
-    pool_indices = load_pool_indices(CACHE_DIR / "pool_indices.npz", device)
-    neuropil_pool_indices = load_pool_indices(CACHE_DIR / "neuropil_pool_indices.npz", device)
     tokens = tokenize_text(TEST_TEXT)
-
-    config = ReadingSessionConfig(
-        lif_parameters=LIFParameters(
-            membrane_time_constant_ms=20.0,
-            spike_threshold=1.0,
-            reset_potential=0.0,
-            refractory_period_ms=2.0,
-            dt_ms=1.0,
-        ),
-        ticks_per_word=TICKS_PER_WORD,
-        input_current_scale=INPUT_CURRENT_SCALE,
-        valence_weight=VALENCE_WEIGHT,
-        arousal_weight=AROUSAL_WEIGHT,
-        token_seed=42,
-        engagement_window_size=CONTEXT_WORD_COUNT * TICKS_PER_WORD,
-        engagement_threshold=0.15,
-        min_ticks_before_boredom_check=CONTEXT_WORD_COUNT * TICKS_PER_WORD,
-        display_window_size=DISPLAY_WORD_COUNT * TICKS_PER_WORD,
-        positive_valence_ceiling=POSITIVE_VALENCE_CEILING,
-        negative_valence_ceiling=NEGATIVE_VALENCE_CEILING,
-        arousal_ceiling=AROUSAL_CEILING,
-        device=device,
-    )
-    return ReadingSession(
-        adjacency_matrix.shape[0], adjacency_matrix, pool_indices, tokens, config, neuropil_pool_indices
-    )
+    return build_reading_session(tokens, device=device)
 
 
-app = create_app(
-    build_session(),
-    tick_interval_seconds=TICK_INTERVAL_SECONDS,
-    calibre_library_path=CALIBRE_LIBRARY_PATH,
-    base_words_per_minute=BASE_WORDS_PER_MINUTE,
-)
+app = create_app(build_session(), calibre_library_path=CALIBRE_LIBRARY_PATH)
 
 
 def main() -> None:

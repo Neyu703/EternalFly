@@ -47,7 +47,7 @@ export function LiveLogPanel({ tick }: { tick: TickData }) {
             <span className="live-log-word">{line.word}</span>
             <span className="live-log-rating">{line.rating0To10.toFixed(2)}/10</span>
             <span className="live-log-activity">
-              A {formatPercent(line.regionActivity.approach ?? 0)} · V {formatPercent(line.regionActivity.avoidance ?? 0)} · E{" "}
+              R {formatPercent(line.regionActivity.reward ?? 0)} · P {formatPercent(line.regionActivity.punishment ?? 0)} · E{" "}
               {formatPercent(line.regionActivity.arousal ?? 0)}
             </span>
           </div>

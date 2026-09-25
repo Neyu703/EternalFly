@@ -1,14 +1,9 @@
 import ebooklib.epub
-import numpy
 import pytest
 
 from eternalfly.text_encoder import (
-    NOISE_HALF_WIDTH,
     extract_epub_text,
     load_and_tokenize_file,
-    project_arousal_to_currents,
-    project_token_to_currents,
-    project_valence_to_currents,
     read_text_file,
     tokenize_text,
 )
@@ -36,133 +31,6 @@ def test_tokenize_text_drops_tokens_that_become_empty_after_stripping():
 
 def test_tokenize_text_returns_empty_list_for_empty_string():
     assert tokenize_text("") == []
-
-
-def test_project_token_to_currents_is_reproducible_across_calls():
-    first_call_currents = project_token_to_currents("dragon", pool_size=8, current_scale=1.0, seed=42)
-    second_call_currents = project_token_to_currents("dragon", pool_size=8, current_scale=1.0, seed=42)
-    numpy.testing.assert_array_equal(first_call_currents, second_call_currents)
-
-
-def test_project_token_to_currents_differs_between_different_tokens():
-    dragon_currents = project_token_to_currents("dragon", pool_size=8, current_scale=1.0, seed=42)
-    castle_currents = project_token_to_currents("castle", pool_size=8, current_scale=1.0, seed=42)
-    assert not numpy.array_equal(dragon_currents, castle_currents)
-
-
-def test_project_token_to_currents_returns_pool_size_length_array_scaled_by_current_scale():
-    currents = project_token_to_currents("dragon", pool_size=5, current_scale=2.0, seed=1)
-    assert currents.shape == (5,)
-    bound = 2.0 * NOISE_HALF_WIDTH
-    assert numpy.all(currents >= -bound) and numpy.all(currents <= bound)
-
-
-def test_project_token_to_currents_raises_on_non_positive_pool_size():
-    with pytest.raises(ValueError):
-        project_token_to_currents("dragon", pool_size=0, current_scale=1.0, seed=1)
-
-
-def test_project_token_to_currents_raises_on_non_integer_pool_size():
-    with pytest.raises(ValueError):
-        project_token_to_currents("dragon", pool_size=3.5, current_scale=1.0, seed=1)
-
-
-def test_project_valence_to_currents_positive_channel_excites_for_a_positive_word():
-    currents = project_valence_to_currents(
-        "wonderful", pool_size=4, current_scale=10.0, valence_weight=1.0, channel="positive"
-    )
-    assert numpy.all(currents > 0.0)
-
-
-def test_project_valence_to_currents_positive_channel_is_zero_for_a_negative_word():
-    currents = project_valence_to_currents(
-        "kill", pool_size=4, current_scale=10.0, valence_weight=1.0, channel="positive"
-    )
-    numpy.testing.assert_array_equal(currents, numpy.zeros(4))
-
-
-def test_project_valence_to_currents_negative_channel_excites_for_a_negative_word():
-    currents = project_valence_to_currents(
-        "kill", pool_size=4, current_scale=10.0, valence_weight=1.0, channel="negative"
-    )
-    assert numpy.all(currents > 0.0)
-
-
-def test_project_valence_to_currents_negative_channel_is_zero_for_a_positive_word():
-    currents = project_valence_to_currents(
-        "wonderful", pool_size=4, current_scale=10.0, valence_weight=1.0, channel="negative"
-    )
-    numpy.testing.assert_array_equal(currents, numpy.zeros(4))
-
-
-def test_project_valence_to_currents_is_zero_for_a_neutral_word_on_both_channels():
-    positive_channel = project_valence_to_currents(
-        "dragon", pool_size=4, current_scale=10.0, valence_weight=1.0, channel="positive"
-    )
-    negative_channel = project_valence_to_currents(
-        "dragon", pool_size=4, current_scale=10.0, valence_weight=1.0, channel="negative"
-    )
-    numpy.testing.assert_array_equal(positive_channel, numpy.zeros(4))
-    numpy.testing.assert_array_equal(negative_channel, numpy.zeros(4))
-
-
-def test_project_valence_to_currents_never_negative_regardless_of_channel_or_word():
-    for word in ["wonderful", "kill", "dragon"]:
-        for channel in ["positive", "negative"]:
-            currents = project_valence_to_currents(
-                word, pool_size=4, current_scale=10.0, valence_weight=1.0, channel=channel
-            )
-            assert numpy.all(currents >= 0.0)
-
-
-def test_project_valence_to_currents_scales_with_valence_weight():
-    low_weight_currents = project_valence_to_currents(
-        "wonderful", pool_size=4, current_scale=10.0, valence_weight=1.0, channel="positive"
-    )
-    high_weight_currents = project_valence_to_currents(
-        "wonderful", pool_size=4, current_scale=10.0, valence_weight=2.0, channel="positive"
-    )
-    numpy.testing.assert_allclose(high_weight_currents, low_weight_currents * 2.0)
-
-
-def test_project_valence_to_currents_raises_on_invalid_channel():
-    with pytest.raises(ValueError, match="channel must be"):
-        project_valence_to_currents(
-            "wonderful", pool_size=4, current_scale=10.0, valence_weight=1.0, channel="sideways"
-        )
-
-
-def test_project_arousal_to_currents_excites_for_a_positive_word():
-    currents = project_arousal_to_currents("wonderful", pool_size=4, current_scale=10.0, arousal_weight=1.0)
-    assert numpy.all(currents > 0.0)
-
-
-def test_project_arousal_to_currents_excites_for_a_negative_word():
-    currents = project_arousal_to_currents("kill", pool_size=4, current_scale=10.0, arousal_weight=1.0)
-    assert numpy.all(currents > 0.0)
-
-
-def test_project_arousal_to_currents_is_stronger_for_more_extreme_sentiment():
-    mild_currents = project_arousal_to_currents("okay", pool_size=4, current_scale=10.0, arousal_weight=1.0)
-    extreme_currents = project_arousal_to_currents("kill", pool_size=4, current_scale=10.0, arousal_weight=1.0)
-    assert extreme_currents[0] > mild_currents[0]
-
-
-def test_project_arousal_to_currents_is_zero_for_a_neutral_word():
-    currents = project_arousal_to_currents("dragon", pool_size=4, current_scale=10.0, arousal_weight=1.0)
-    numpy.testing.assert_array_equal(currents, numpy.zeros(4))
-
-
-def test_project_arousal_to_currents_never_negative():
-    for word in ["wonderful", "kill", "dragon"]:
-        currents = project_arousal_to_currents(word, pool_size=4, current_scale=10.0, arousal_weight=1.0)
-        assert numpy.all(currents >= 0.0)
-
-
-def test_project_arousal_to_currents_scales_with_arousal_weight():
-    low_weight_currents = project_arousal_to_currents("kill", pool_size=4, current_scale=10.0, arousal_weight=1.0)
-    high_weight_currents = project_arousal_to_currents("kill", pool_size=4, current_scale=10.0, arousal_weight=2.0)
-    numpy.testing.assert_allclose(high_weight_currents, low_weight_currents * 2.0)
 
 
 def _build_tiny_epub(epub_path):

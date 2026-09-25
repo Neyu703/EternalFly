@@ -64,12 +64,12 @@ def test_calibrate_channel_computes_centroid_and_background_stats():
     assert calibration.background_std == pytest.approx(expected_similarities.std())
 
 
-def test_channel_drive_ramps_linearly_from_zero_at_z_two_to_one_at_z_four():
+def test_channel_drive_ramps_linearly_from_zero_at_z_start_to_one_at_z_end():
     calibration = ChannelCalibration(anchor_embedding=numpy.array([1.0, 0.0]), background_mean=0.5, background_std=0.1)
 
-    assert channel_drive(numpy.array([0.7, 0.0]), calibration) == pytest.approx(0.0)  # z = 2.0
-    assert channel_drive(numpy.array([0.8, 0.0]), calibration) == pytest.approx(0.5)  # z = 3.0
-    assert channel_drive(numpy.array([0.9, 0.0]), calibration) == pytest.approx(1.0)  # z = 4.0
+    assert channel_drive(numpy.array([0.65, 0.0]), calibration) == pytest.approx(0.0)  # z = 1.5 = Z_RAMP_START
+    assert channel_drive(numpy.array([0.75, 0.0]), calibration) == pytest.approx(0.5)  # z = 2.5, midpoint
+    assert channel_drive(numpy.array([0.85, 0.0]), calibration) == pytest.approx(1.0)  # z = 3.5 = Z_RAMP_END
 
 
 def test_channel_drive_clamps_below_zero_and_above_one():

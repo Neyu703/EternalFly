@@ -10,6 +10,7 @@ from eternalfly.lif import (
     create_initial_state,
     create_initial_synaptic_state,
     delay_steps_for,
+    poisson_forced_spikes,
     step,
     synaptic_step,
 )
@@ -355,3 +356,51 @@ def test_synaptic_step_returned_state_keeps_pending_conductance_increments_uncha
     new_state, _ = synaptic_step(state, parameters)
 
     assert new_state.pending_conductance_increments is original_pending
+
+
+def test_poisson_forced_spikes_zero_drive_never_fires():
+    drives = torch.zeros(100)
+    generator = torch.Generator().manual_seed(0)
+
+    spikes = poisson_forced_spikes(drives, max_rate_hz=500.0, dt_ms=1.0, generator=generator)
+
+    assert spikes.sum().item() == 0
+
+
+def test_poisson_forced_spikes_probability_clamped_at_one_always_fires():
+    drives = torch.ones(50)
+    generator = torch.Generator().manual_seed(0)
+
+    # max_rate_hz*dt_ms/1000 = 2000*1/1000 = 2.0, clamped to probability 1.0
+    spikes = poisson_forced_spikes(drives, max_rate_hz=2000.0, dt_ms=1.0, generator=generator)
+
+    assert spikes.sum().item() == 50
+
+
+def test_poisson_forced_spikes_empirical_rate_matches_target_probability():
+    generator = torch.Generator().manual_seed(0)
+    drives = torch.full((20000,), 0.5)
+
+    # probability = 0.5 * 100 * 1 / 1000 = 0.05
+    spikes = poisson_forced_spikes(drives, max_rate_hz=100.0, dt_ms=1.0, generator=generator)
+
+    empirical_rate = spikes.float().mean().item()
+    assert empirical_rate == pytest.approx(0.05, abs=0.01)
+
+
+def test_poisson_forced_spikes_is_deterministic_given_the_same_generator_seed():
+    drives = torch.full((30,), 0.5)
+
+    first = poisson_forced_spikes(drives, max_rate_hz=200.0, dt_ms=1.0, generator=torch.Generator().manual_seed(7))
+    second = poisson_forced_spikes(drives, max_rate_hz=200.0, dt_ms=1.0, generator=torch.Generator().manual_seed(7))
+
+    assert torch.equal(first, second)
+
+
+def test_poisson_forced_spikes_per_neuron_drive_vector_gives_per_neuron_probabilities():
+    drives = torch.tensor([0.0, 1.0])
+    generator = torch.Generator().manual_seed(0)
+
+    spikes = poisson_forced_spikes(drives, max_rate_hz=2000.0, dt_ms=1.0, generator=generator)
+
+    assert spikes.tolist() == [False, True]

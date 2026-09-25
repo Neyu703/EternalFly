@@ -1,6 +1,6 @@
 [project]
 name = "eternalfly"
-version = "0.1.47"
+version = "0.1.48"
 description = "Live spiking simulation of the FlyWire fly connectome reading a book"
 requires-python = ">=3.13"
 dependencies = [
@@ -34,9 +34,6 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["eternalfly*"]
-
-[tool.setuptools.package-data]
-eternalfly = ["vader_lexicon.txt"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

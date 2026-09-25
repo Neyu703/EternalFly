@@ -1,6 +1,5 @@
 """Turns smoothed brain-region firing rates into Plutchik emotions and a 0-10 rating."""
 
-import collections
 import math
 
 EMOTION_TARGETS = {
@@ -20,30 +19,37 @@ EMOTION_TARGETS = {
 EMOTION_FALLOFF_SIGMA = 0.45
 
 
-class RollingAverage:
-    """A fixed-window moving average over a stream of values.
+class ExponentialMovingAverage:
+    """A moving average over a stream of values, smoothed with a real time constant
+    rather than a fixed value COUNT. Unlike a fixed dt, elapsed_ms is passed to each
+    update() call rather than baked in at construction - reading_session.py's new
+    event-driven engine advances in variable-sized frames (a server-controlled step
+    count, not a fixed number of ticks per word), so a single call's real elapsed
+    simulated time can vary from one update to the next."""
 
-    Maintains a running sum instead of resumming the whole window on every update, so
-    update() stays O(1) even for very large window sizes (needed for a reading session
-    to track sentiment over many words — one instance of this runs per tick for every
-    tracked brain region, so an O(window_size) update would scale badly)."""
+    def __init__(self, time_constant_ms: float):
+        """Create an EMA with the given (positive) time constant."""
+        if time_constant_ms <= 0:
+            raise ValueError("time_constant_ms must be positive")
+        self._time_constant_ms = time_constant_ms
+        self._value = 0.0
+        self._has_seen_a_value = False
 
-    def __init__(self, window_size: int):
-        """Create a rolling average over the most recent window_size values.
-        window_size must be a positive integer."""
-        if not isinstance(window_size, int) or window_size <= 0:
-            raise ValueError("window_size must be a positive integer")
-        self._window = collections.deque(maxlen=window_size)
-        self._running_sum = 0.0
-
-    def update(self, value: float) -> float:
-        """Append value to the window and return the mean of the values currently
-        held in the window (fewer than window_size before the window fills up)."""
-        if len(self._window) == self._window.maxlen:
-            self._running_sum -= self._window[0]
-        self._window.append(value)
-        self._running_sum += value
-        return self._running_sum / len(self._window)
+    def update(self, value: float, elapsed_ms: float) -> float:
+        """Fold value into the average (as if it held for the last elapsed_ms of
+        simulated time) and return the new smoothed value. The very first update seeds
+        the average at value itself, rather than decaying up from 0 (which would
+        otherwise take several time constants to reach a steady input). Raises
+        ValueError if elapsed_ms is not positive."""
+        if elapsed_ms <= 0:
+            raise ValueError("elapsed_ms must be positive")
+        if not self._has_seen_a_value:
+            self._value = value
+            self._has_seen_a_value = True
+        else:
+            decay = math.exp(-elapsed_ms / self._time_constant_ms)
+            self._value = decay * self._value + (1.0 - decay) * value
+        return self._value
 
 
 def pool_rates_to_valence_arousal(
@@ -56,7 +62,7 @@ def pool_rates_to_valence_arousal(
 ) -> tuple[float, float]:
     """Convert approach/avoidance/arousal pool firing rates into a (valence, arousal)
     coordinate pair, rescaled to [-1.0, 1.0] / [0.0, 1.0] against the network's own
-    calibrated ceilings (see scripts/calibrate_sentiment.py) rather than the raw pool
+    calibrated ceilings (see scripts/audit_brain.py) rather than the raw pool
     rates directly.
 
     The raw approach-minus-avoidance difference and raw arousal-pool rate only ever
