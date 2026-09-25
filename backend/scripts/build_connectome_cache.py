@@ -217,6 +217,16 @@ def main() -> None:
     scipy.sparse.save_npz(CACHE_DIR / "adjacency.npz", adjacency_matrix)
     print("saved adjacency:", adjacency_matrix.shape, "nnz:", adjacency_matrix.nnz)
 
+    # synapses.py's event-driven propagation gathers by PRESYNAPTIC row (which neurons
+    # just fired) - the transpose of adjacency_matrix's post-major convention
+    # (entry[post, pre]). Raw signed syn_counts, not yet scaled by
+    # lif.SHIU_2024_PARAMETERS.per_synapse_weight - see
+    # synapses.build_signed_edge_weights, applied at load time so retuning that
+    # constant never requires rebuilding this cache.
+    synapses_matrix = adjacency_matrix.T.tocsr()
+    scipy.sparse.save_npz(CACHE_DIR / "synapses.npz", synapses_matrix)
+    print("saved synapses (pre-major):", synapses_matrix.shape, "nnz:", synapses_matrix.nnz)
+
     cell_groups = build_cell_groups(annotations, edge_pre_ids, edge_post_ids, edge_syn_counts, root_ids, neuron_id_to_index)
     numpy.savez(CACHE_DIR / "cell_groups.npz", **cell_groups)
     for group_name, indices in sorted(cell_groups.items()):
