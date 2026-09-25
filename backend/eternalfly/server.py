@@ -5,6 +5,7 @@ import contextlib
 import pathlib
 import random
 import time
+from collections.abc import Callable
 from dataclasses import asdict
 
 import numpy
@@ -27,6 +28,7 @@ DEFAULT_WORDS_PER_MINUTE = 150.0
 DEFAULT_LOOKAHEAD_WORD_COUNT = 50
 DEFAULT_LOOKAHEAD_INTERVAL_SECONDS = 1.0
 DEFAULT_SPIKE_CLOUD_MAX_NEURON_COUNT = 20_000
+DEFAULT_MEMORY_SAVE_WORD_INTERVAL = 500
 
 
 def encode_fired_neuron_indices(fired_neuron_indices: torch.Tensor) -> bytes:
@@ -102,16 +104,20 @@ def _apply_control_message(message: dict, current_autoplay_mode: str, current_wo
     return current_autoplay_mode, current_words_per_minute
 
 
-def _advance_past_finished_book(session, autoplay_mode: str, calibre_library_path: pathlib.Path | None) -> None:
+def _advance_past_finished_book(
+    session, autoplay_mode: str, calibre_library_path: pathlib.Path | None, save_memory_fn: Callable[[object], None] | None
+) -> None:
     """React to the book having just finished, per the client's chosen autoplay mode.
     Does nothing when autoplay is off, so a finished book simply stays finished."""
     if autoplay_mode == AUTOPLAY_MODE_RESTART:
         session.restart()
     elif autoplay_mode == AUTOPLAY_MODE_SHUFFLE:
-        _load_random_calibre_book(session, calibre_library_path)
+        _load_random_calibre_book(session, calibre_library_path, save_memory_fn)
 
 
-def _load_random_calibre_book(session, calibre_library_path: pathlib.Path | None) -> None:
+def _load_random_calibre_book(
+    session, calibre_library_path: pathlib.Path | None, save_memory_fn: Callable[[object], None] | None
+) -> None:
     """Load a random book from the configured Calibre library into the session. Falls
     back to restarting the current book if no library is configured, it has no
     loadable books, or the randomly chosen book fails to load (e.g. a corrupt file) —
@@ -122,6 +128,8 @@ def _load_random_calibre_book(session, calibre_library_path: pathlib.Path | None
             raise ValueError("no books available in the Calibre library")
         chosen_book = random.choice(books)
         tokens = load_and_tokenize_file(chosen_book.file_path)
+        if save_memory_fn is not None:
+            save_memory_fn(session)  # persist the finished book's learning before switching away from it
         session.load_new_text(tokens)
     except (FileNotFoundError, ValueError):
         session.restart()
@@ -135,6 +143,10 @@ def create_app(
     lookahead_word_count: int = DEFAULT_LOOKAHEAD_WORD_COUNT,
     lookahead_interval_seconds: float = DEFAULT_LOOKAHEAD_INTERVAL_SECONDS,
     spike_cloud_max_neuron_count: int = DEFAULT_SPIKE_CLOUD_MAX_NEURON_COUNT,
+    memory_save_word_interval: int = DEFAULT_MEMORY_SAVE_WORD_INTERVAL,
+    load_memory_fn: Callable[[object], None] | None = None,
+    save_memory_fn: Callable[[object], None] | None = None,
+    delete_persisted_memory_fn: Callable[[], None] | None = None,
 ) -> FastAPI:
     """Build a FastAPI app that streams `session.advance()` results over `/ws` as
     JSON, roughly every frame_interval_seconds of real time, until the client
@@ -143,15 +155,24 @@ def create_app(
     messages and /load-book keep working while a frame is mid-simulation. A background
     task periodically calls session.precompute_upcoming_words() so the multilingual
     embedding model almost never has to run synchronously on the simulation's own
-    critical path (see reading_session.py)."""
+    critical path (see reading_session.py).
+
+    load_memory_fn/save_memory_fn/delete_persisted_memory_fn are dependency-injected
+    (see brain_loader.load_memory_into_session/save_memory/reset_memory) so this module
+    stays testable against a fake session with no real filesystem cache - None (the
+    default) skips persistence entirely, matching every test in test_server.py."""
 
     @contextlib.asynccontextmanager
     async def lifespan(_app: FastAPI):
+        if load_memory_fn is not None:
+            await asyncio.to_thread(load_memory_fn, session)
         lookahead_task = asyncio.create_task(_run_lookahead_loop(session, lookahead_word_count, lookahead_interval_seconds))
         yield
         lookahead_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await lookahead_task
+        if save_memory_fn is not None:
+            await asyncio.to_thread(save_memory_fn, session)
 
     app = FastAPI(lifespan=lifespan)
     app.add_middleware(
@@ -188,6 +209,7 @@ def create_app(
         try:
             last_frame_time = time.monotonic()
             words_before = None  # None until the first frame has a genuine elapsed-time baseline to compare against
+            words_since_last_memory_save = 0
             while True:
                 frame_start = time.monotonic()
                 elapsed_seconds = frame_start - last_frame_time
@@ -203,15 +225,28 @@ def create_app(
                     # make the very next advance()'s book_finished False again, so this
                     # fires at most once per finish - but it still fires promptly even
                     # if autoplay was only set after the book had already finished.
-                    await asyncio.to_thread(_advance_past_finished_book, session, autoplay_mode, calibre_library_path)
+                    await asyncio.to_thread(
+                        _advance_past_finished_book, session, autoplay_mode, calibre_library_path, save_memory_fn
+                    )
                 # words_before is None only for the very first frame: word_index starts
                 # at 0 (words_read=1, even before any real simulated time has elapsed),
                 # so there is no genuine "words produced over elapsed_seconds" baseline
                 # yet to divide by - report 0.0 rather than a spurious huge/tiny rate.
+                words_delta = 0 if words_before is None else max(0, result.words_read - words_before)
                 achieved_words_per_minute = (
                     0.0 if words_before is None else compute_achieved_words_per_minute(result.words_read - words_before, elapsed_seconds)
                 )
                 words_before = result.words_read
+
+                # Periodic persistence, independent of book changes/shutdown (see
+                # brain_loader.save_memory) - words_delta is clamped to 0 rather than
+                # going negative across a book change (words_read resets to 1 there),
+                # so this can only undercount across that one frame, never overcount.
+                if save_memory_fn is not None:
+                    words_since_last_memory_save += words_delta
+                    if words_since_last_memory_save >= memory_save_word_interval:
+                        await asyncio.to_thread(save_memory_fn, session)
+                        words_since_last_memory_save = 0
 
                 await websocket.send_json(frame_result_to_json(result, achieved_words_per_minute))
                 fired_neuron_indices = session.last_frame_fired_neuron_indices(spike_cloud_max_neuron_count)
@@ -237,6 +272,8 @@ def create_app(
                 asyncio.to_thread(load_and_tokenize_file, pathlib.Path(request.path)),
                 timeout=load_book_timeout_seconds,
             )
+            if save_memory_fn is not None:
+                await asyncio.to_thread(save_memory_fn, session)  # persist the outgoing book's learning first
             await asyncio.to_thread(session.load_new_text, tokens)
         except FileNotFoundError as missing_file_error:
             raise HTTPException(status_code=404, detail=str(missing_file_error)) from missing_file_error
@@ -248,6 +285,16 @@ def create_app(
                 detail=f"Loading this book took longer than {load_book_timeout_seconds:.0f}s",
             ) from timeout_error
         return {"status": "ok", "total_words": len(tokens)}
+
+    @app.post("/reset-memory")
+    async def reset_memory() -> dict:
+        """Reset the fly's real KC->MBON synapses back to their un-learned initial
+        weights (see reading_session.py's ReadingSession.reset_memory) and delete any
+        persisted memory.npz, so nothing learned survives a restart either."""
+        await asyncio.to_thread(session.reset_memory)
+        if delete_persisted_memory_fn is not None:
+            await asyncio.to_thread(delete_persisted_memory_fn)
+        return {"status": "ok"}
 
     @app.get("/books-in-folder")
     async def get_books_in_folder(path: str) -> dict:

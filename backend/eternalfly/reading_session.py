@@ -21,6 +21,7 @@ import torch
 
 from eternalfly.emotion_decoder import ExponentialMovingAverage, compute_emotions, compute_rating, normalize_rate, pool_rates_to_valence_arousal
 from eternalfly.lif import SynapticLIFParameters, SynapticLIFState, create_initial_synaptic_state, poisson_forced_spikes, synaptic_step
+from eternalfly.plasticity import compute_updated_edge_weights, decay_eligibility_trace, find_kc_to_mbon_edge_positions, mark_eligible_kcs
 from eternalfly.readout import accumulate_spike_counts, build_group_readout_matrix, readout_rates
 from eternalfly.semantic_encoder import ChannelCalibration, EmbedFn, WordEmbeddingCache, channel_drives, context_valence, semantic_odor
 from eternalfly.synapses import EventDrivenSynapses, advance_delay_buffer, propagate_spikes
@@ -66,6 +67,10 @@ class ReadingSessionConfig:
     negative_valence_ceiling: float
     arousal_ceiling: float
     behavior_ceilings: dict[str, float]  # keyed like BEHAVIOR_NAMES - see scripts/audit_brain.py
+    plasticity_learning_rate: float
+    plasticity_eligibility_time_constant_ms: float
+    plasticity_recovery_time_constant_ms: float
+    plasticity_update_interval_steps: int
     device: str = "cpu"
 
 
@@ -79,6 +84,7 @@ class FrameResult:
     total_words: int
     emotions: dict[str, float]
     rating_0_10: float
+    learned_valence: float  # -1..1, from real MBON approach-avoidance activity (see plasticity.py) - the fly's actual learned opinion, distinct from region_activity's raw instinct signal
     region_activity: dict[str, float]  # reward/punishment/arousal - the injected teaching signal's own activity
     behaviors: dict[str, float]  # real descending/motor readouts, normalized 0..1 against behavior_ceilings
     senses: dict[str, float]  # current word's channel drive levels (0..1), not a spike-rate readout
@@ -111,8 +117,8 @@ class ReadingSession:
         """cell_groups holds every named group from cell_groups.npz (see
         scripts/build_connectome_cache.py): sensory_<channel>, olfactory_remaining,
         behavior_<name>, reward_pam, punishment_ppl1, arousal_oa, mbon_approach,
-        mbon_avoidance - as index tensors into the neuron_count-sized network.
-        neuropil_readout_matrix is connectome.neuropil_readout_matrix's real
+        mbon_avoidance, kenyon_cells - as index tensors into the neuron_count-sized
+        network. neuropil_readout_matrix is connectome.neuropil_readout_matrix's real
         presynapse-weighted (neuropil_count x neuron_count) matrix, already on device.
         """
         self._neuron_count = neuron_count
@@ -135,6 +141,23 @@ class ReadingSession:
         }
         self._reward_pam_indices = cell_groups["reward_pam"].to(config.device)
         self._punishment_ppl1_indices = cell_groups["punishment_ppl1"].to(config.device)
+
+        # KC->MBON dopamine-gated plasticity (see plasticity.py): avoidance-MBONs are
+        # depressed by the real reward(PAM) drive, approach-MBONs by the real
+        # punishment(PPL1) drive - the "compartment-proxy" dopamine signal
+        # connectome.split_mbons_by_dopamine_input's docstring describes.
+        kc_indices = cell_groups["kenyon_cells"].to(config.device)
+        mbon_avoidance_indices = cell_groups["mbon_avoidance"].to(config.device)
+        mbon_approach_indices = cell_groups["mbon_approach"].to(config.device)
+        self._kc_indices = kc_indices
+        self._kc_eligibility = torch.zeros(len(kc_indices), device=config.device)
+        self._avoidance_edges = find_kc_to_mbon_edge_positions(
+            synapses.crow_indices, synapses.col_indices, synapses.values, kc_indices, mbon_avoidance_indices
+        )
+        self._approach_edges = find_kc_to_mbon_edge_positions(
+            synapses.crow_indices, synapses.col_indices, synapses.values, kc_indices, mbon_approach_indices
+        )
+        self._steps_since_plasticity_update = 0
 
         group_row_names, group_readout_matrix = build_group_readout_matrix(readout_group_indices, neuron_count, config.device)
         self._readout_row_names = neuropil_names + group_row_names
@@ -268,6 +291,7 @@ class ReadingSession:
             pending_conductance_increments=advance_delay_buffer(self._state.pending_conductance_increments, contribution),
         )
         self._decay_channel_levels()
+        self._update_plasticity(spikes)
 
         self._steps_into_word += 1
         if self._steps_into_word >= self._steps_per_word:
@@ -304,6 +328,81 @@ class ReadingSession:
         for name in self._channel_levels:
             self._channel_levels[name] *= self._channel_decay_factors[name]
         self._odor_levels = self._odor_levels * self._odor_decay_factor
+
+    def _update_plasticity(self, spikes: torch.Tensor) -> None:
+        """Decay every Kenyon cell's eligibility trace, mark any that just fired as
+        freshly eligible, and every plasticity_update_interval_steps apply one
+        dopamine-gated weight update to the real KC->MBON synapses (see plasticity.py).
+        A no-op if this connectome cache has no Kenyon cells (kc_indices empty)."""
+        if len(self._kc_indices) == 0:
+            return
+        dt_ms = self._config.lif_parameters.dt_ms
+        self._kc_eligibility = decay_eligibility_trace(
+            self._kc_eligibility, dt_ms, self._config.plasticity_eligibility_time_constant_ms
+        )
+        kc_spike_mask = spikes[self._kc_indices] > 0
+        self._kc_eligibility = mark_eligible_kcs(self._kc_eligibility, kc_spike_mask)
+
+        self._steps_since_plasticity_update += 1
+        if self._steps_since_plasticity_update >= self._config.plasticity_update_interval_steps:
+            self._apply_plasticity_update(self._steps_since_plasticity_update * dt_ms)
+            self._steps_since_plasticity_update = 0
+
+    def _apply_plasticity_update(self, elapsed_ms: float) -> None:
+        max_rate = self._config.valence_injection_max_rate_hz
+        reward_drive = self._valence_injection_rate_pam / max_rate if max_rate > 0 else 0.0
+        punishment_drive = self._valence_injection_rate_ppl1 / max_rate if max_rate > 0 else 0.0
+        for edges, dopamine_drive in ((self._avoidance_edges, reward_drive), (self._approach_edges, punishment_drive)):
+            if edges.edge_positions.numel() == 0:
+                continue
+            current_weights = self._synapses.values[edges.edge_positions]
+            edge_eligibility = self._kc_eligibility[edges.edge_kc_local_index]
+            updated_weights = compute_updated_edge_weights(
+                current_weights,
+                edges.initial_weights,
+                edge_eligibility,
+                dopamine_drive,
+                elapsed_ms,
+                self._config.plasticity_learning_rate,
+                self._config.plasticity_recovery_time_constant_ms,
+            )
+            self._synapses.values[edges.edge_positions] = updated_weights
+
+    def memory_snapshot(self) -> dict[str, numpy.ndarray]:
+        """The current real KC->MBON synapse weights, keyed for npz persistence (see
+        brain_loader.save_memory/load_memory_into_session)."""
+        with self._lock:
+            return {
+                "avoidance_edge_weights": self._synapses.values[self._avoidance_edges.edge_positions].cpu().numpy(),
+                "approach_edge_weights": self._synapses.values[self._approach_edges.edge_positions].cpu().numpy(),
+            }
+
+    def load_memory(self, data: dict[str, numpy.ndarray]) -> bool:
+        """Apply a previously saved memory_snapshot() if its edge counts match this
+        session's real KC->MBON edges exactly (a different connectome cache would have
+        different counts) - returns whether it was actually applied."""
+        avoidance_weights = data.get("avoidance_edge_weights")
+        approach_weights = data.get("approach_edge_weights")
+        if avoidance_weights is None or approach_weights is None:
+            return False
+        if len(avoidance_weights) != len(self._avoidance_edges.edge_positions):
+            return False
+        if len(approach_weights) != len(self._approach_edges.edge_positions):
+            return False
+        with self._lock:
+            self._synapses.values[self._avoidance_edges.edge_positions] = torch.as_tensor(
+                avoidance_weights, dtype=self._synapses.values.dtype, device=self._device
+            )
+            self._synapses.values[self._approach_edges.edge_positions] = torch.as_tensor(
+                approach_weights, dtype=self._synapses.values.dtype, device=self._device
+            )
+            return True
+
+    def reset_memory(self) -> None:
+        """Reset every real KC->MBON synapse back to its original, un-learned weight."""
+        with self._lock:
+            self._synapses.values[self._avoidance_edges.edge_positions] = self._avoidance_edges.initial_weights
+            self._synapses.values[self._approach_edges.edge_positions] = self._approach_edges.initial_weights
 
     def _build_forced_spike_mask(self) -> torch.Tensor:
         dt_ms = self._config.lif_parameters.dt_ms
@@ -348,7 +447,7 @@ class ReadingSession:
         mbon_approach_raw = raw_rates[self._readout_row_names.index("approach")].item()
         mbon_avoidance_raw = raw_rates[self._readout_row_names.index("avoidance")].item()
         arousal_raw = raw_rates[self._readout_row_names.index("arousal")].item()
-        emotions, rating = self._compute_emotions_and_rating(mbon_approach_raw, mbon_avoidance_raw, arousal_raw)
+        emotions, rating, learned_valence = self._compute_emotions_and_rating(mbon_approach_raw, mbon_avoidance_raw, arousal_raw)
         wants_new_book = self._update_engagement(mbon_approach_raw, mbon_avoidance_raw, arousal_raw, elapsed_ms)
 
         current_word = None if book_finished else self._tokens[self._word_index]
@@ -363,6 +462,7 @@ class ReadingSession:
             total_words=len(self._tokens),
             emotions=emotions,
             rating_0_10=rating,
+            learned_valence=learned_valence,
             region_activity=region_activity,
             behaviors=behaviors,
             senses=dict(self._channel_levels),
@@ -381,12 +481,14 @@ class ReadingSession:
             self._display_emas = decay * self._display_emas + (1.0 - decay) * raw_rates
         return self._display_emas
 
-    def _compute_emotions_and_rating(self, approach_rate: float, avoidance_rate: float, arousal_rate: float) -> tuple[dict[str, float], float]:
+    def _compute_emotions_and_rating(
+        self, approach_rate: float, avoidance_rate: float, arousal_rate: float
+    ) -> tuple[dict[str, float], float, float]:
         valence, arousal = pool_rates_to_valence_arousal(
             approach_rate, avoidance_rate, arousal_rate,
             self._config.positive_valence_ceiling, self._config.negative_valence_ceiling, self._config.arousal_ceiling,
         )
-        return compute_emotions(valence, arousal), compute_rating(valence)
+        return compute_emotions(valence, arousal), compute_rating(valence), valence
 
     def _update_engagement(self, approach_rate: float, avoidance_rate: float, arousal_rate: float, elapsed_ms: float) -> bool:
         """Track a long-time-constant engagement score (from the same real MBON

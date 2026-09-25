@@ -87,6 +87,14 @@
   color: #ef476f;
 }
 
+.neural-activity-stat-value--instinct {
+  color: #9a86be;
+}
+
+.neural-activity-stat-value--learned {
+  color: #ffd166;
+}
+
 .neural-activity-stat-value--wpm,
 .neural-activity-stat-value--spikes {
   color: #c3e86b;

@@ -46,6 +46,14 @@ export function NeuralActivityChart({ tick, isPaused }: { tick: TickData; isPaus
   const currentFiringRate = firingRateHistory[firingRateHistory.length - 1] ?? 0;
   const arousal = normalizeRegionActivity(tick.regionActivity.arousal ?? 0, "arousal");
   const trackedRegionCount = Object.keys(tick.neuropilActivity).length;
+  // The raw injected teaching signal (never changes across a session) vs. the fly's
+  // actual current opinion (real MBON approach-avoidance activity, shaped over time by
+  // dopamine-gated KC->MBON plasticity - see plasticity.py) - both on the same -1..1
+  // scale, so a session where the fly has genuinely learned something shows the two
+  // visibly diverging.
+  const instinctValence =
+    normalizeRegionActivity(tick.regionActivity.reward ?? 0, "reward") -
+    normalizeRegionActivity(tick.regionActivity.punishment ?? 0, "punishment");
 
   return (
     <div className="neural-activity-panel">
@@ -91,6 +99,22 @@ export function NeuralActivityChart({ tick, isPaused }: { tick: TickData; isPaus
             {tick.spikesPerSecond >= 1000 ? `${(tick.spikesPerSecond / 1000).toFixed(1)}k` : Math.round(tick.spikesPerSecond)}
           </span>
           <span className="neural-activity-stat-caption">Spikes/s, ganzes Hirn</span>
+        </div>
+        <div className="neural-activity-stat">
+          <span className="neural-activity-stat-label">Instinkt</span>
+          <span className="neural-activity-stat-value neural-activity-stat-value--instinct">
+            {instinctValence >= 0 ? "+" : ""}
+            {instinctValence.toFixed(2)}
+          </span>
+          <span className="neural-activity-stat-caption">Belohnung/Strafe-Signal</span>
+        </div>
+        <div className="neural-activity-stat">
+          <span className="neural-activity-stat-label">Gelernt</span>
+          <span className="neural-activity-stat-value neural-activity-stat-value--learned">
+            {tick.learnedValence >= 0 ? "+" : ""}
+            {tick.learnedValence.toFixed(2)}
+          </span>
+          <span className="neural-activity-stat-caption">MBON-Bewertung, plastisch</span>
         </div>
       </div>
 

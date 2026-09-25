@@ -33,8 +33,8 @@ def main() -> None:
         active_behaviors = {name: round(value, 4) for name, value in result.behaviors.items() if value > 0}
         print(
             f"word={result.current_word!r:15} progress={result.page_progress:.2f} "
-            f"rating={result.rating_0_10:.2f} senses={active_senses} behaviors={active_behaviors} "
-            f"bored={result.wants_new_book}"
+            f"rating={result.rating_0_10:.2f} learned={result.learned_valence:+.4f} "
+            f"senses={active_senses} behaviors={active_behaviors} bored={result.wants_new_book}"
         )
 
 

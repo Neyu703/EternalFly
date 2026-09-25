@@ -2,6 +2,7 @@ import { EMOTION_NAMES, type TickData } from "../types";
 import type { ControlMessage } from "../hooks/useWebSocketTickData";
 import { EMOTION_COLORS } from "../emotionColors";
 import { LoadBookButton } from "./LoadBookButton";
+import { ResetMemoryButton } from "./ResetMemoryButton";
 import { CalibreBookList } from "./CalibreBookList";
 import { PlaybackControls } from "./PlaybackControls";
 import { LiveLogPanel } from "./LiveLogPanel";
@@ -67,6 +68,7 @@ export function HudPanel({
       )}
 
       <LoadBookButton />
+      <ResetMemoryButton />
       <LiveLogPanel tick={tick} />
     </div>
   );

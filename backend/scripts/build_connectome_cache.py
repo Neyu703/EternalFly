@@ -12,6 +12,7 @@ from eternalfly.cell_groups import (
     BEHAVIOR_SELECTORS,
     DOPAMINE_PUNISHMENT_SELECTOR,
     DOPAMINE_REWARD_SELECTOR,
+    KENYON_CELL_SELECTOR,
     MBON_SELECTOR,
     OCTOPAMINE_AROUSAL_SELECTOR,
     SENSORY_CHANNEL_SELECTORS,
@@ -58,8 +59,9 @@ def build_cell_groups(
 ) -> dict[str, numpy.ndarray]:
     """Select every real named neuron group (sensory input channels, behavior readouts,
     reward/punishment/arousal pools, MBONs split by which dopaminergic cluster feeds
-    them, and the remaining olfactory glomeruli for the semantic-odor fallback - see
-    cell_groups.py), converted from root ids to matrix indices."""
+    them, Kenyon cells for KC->MBON plasticity, and the remaining olfactory glomeruli
+    for the semantic-odor fallback - see cell_groups.py), converted from root ids to
+    matrix indices."""
     root_id_groups: dict[str, numpy.ndarray] = {}
     for channel_name, selector in SENSORY_CHANNEL_SELECTORS.items():
         root_id_groups[f"sensory_{channel_name}"] = select_cell_group(annotations, root_ids, selector)
@@ -83,6 +85,7 @@ def build_cell_groups(
     )
     root_id_groups["mbon_avoidance"] = avoidance_mbon_ids
     root_id_groups["mbon_approach"] = approach_mbon_ids
+    root_id_groups["kenyon_cells"] = select_cell_group(annotations, root_ids, KENYON_CELL_SELECTOR)
 
     return {name: numpy.array([neuron_id_to_index[int(i)] for i in ids]) for name, ids in root_id_groups.items()}
 

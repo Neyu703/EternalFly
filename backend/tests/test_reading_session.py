@@ -8,11 +8,12 @@ from eternalfly.reading_session import ReadingSession, ReadingSessionConfig, Sen
 from eternalfly.semantic_encoder import ChannelCalibration
 from eternalfly.synapses import build_event_driven_synapses
 
-NEURON_COUNT = 14
+NEURON_COUNT = 15
 INDEX = {
     "sweet": 0, "bitter": 1, "odor_a": 2, "odor_b": 3,
     "escape": 4, "feeding": 5, "backing": 6, "turn_left": 7, "turn_right": 8,
     "reward_pam": 9, "punishment_ppl1": 10, "arousal_oa": 11, "mbon_approach": 12, "mbon_avoidance": 13,
+    "kc": 14,
 }
 
 
@@ -31,11 +32,19 @@ def _cell_groups() -> dict[str, torch.Tensor]:
         "arousal_oa": torch.tensor([INDEX["arousal_oa"]]),
         "mbon_approach": torch.tensor([INDEX["mbon_approach"]]),
         "mbon_avoidance": torch.tensor([INDEX["mbon_avoidance"]]),
+        "kenyon_cells": torch.tensor([INDEX["kc"]]),
     }
 
 
 def _zero_synapses():
     return build_event_driven_synapses(scipy.sparse.csr_matrix((NEURON_COUNT, NEURON_COUNT)))
+
+
+def _synapses_with_edges(edges: list[tuple[int, int, float]]):
+    matrix = scipy.sparse.csr_matrix((NEURON_COUNT, NEURON_COUNT)).tolil()
+    for pre, post, weight in edges:
+        matrix[pre, post] = weight
+    return build_event_driven_synapses(matrix.tocsr())
 
 
 def _synapses_with_edge(pre: int, post: int, weight: float):
@@ -84,18 +93,22 @@ def _make_config(**overrides) -> ReadingSessionConfig:
         negative_valence_ceiling=1.0,
         arousal_ceiling=1.0,
         behavior_ceilings={"escape": 1.0, "feeding": 1.0, "backing": 1.0, "turn_left": 1.0, "turn_right": 1.0},
+        plasticity_learning_rate=0.1,
+        plasticity_eligibility_time_constant_ms=1000.0,
+        plasticity_recovery_time_constant_ms=3_600_000.0,
+        plasticity_update_interval_steps=10,
         device="cpu",
     )
     defaults.update(overrides)
     return ReadingSessionConfig(**defaults)
 
 
-def _make_session(tokens, synapses=None, embed_vectors=None, **config_overrides) -> tuple[ReadingSession, FakeEmbedder]:
+def _make_session(tokens, synapses=None, embed_vectors=None, cell_groups=None, **config_overrides) -> tuple[ReadingSession, FakeEmbedder]:
     embedder = FakeEmbedder(embed_vectors if embed_vectors is not None else WORD_EMBEDDINGS)
     session = ReadingSession(
         neuron_count=NEURON_COUNT,
         synapses=synapses if synapses is not None else _zero_synapses(),
-        cell_groups=_cell_groups(),
+        cell_groups=cell_groups if cell_groups is not None else _cell_groups(),
         neuropil_readout_matrix=torch.zeros(1, NEURON_COUNT),
         neuropil_names=["FAKE_REGION"],
         odor_projection=torch.tensor([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]),
@@ -373,3 +386,114 @@ def test_last_frame_fired_neuron_indices_respects_max_count():
 
     fired = session.last_frame_fired_neuron_indices(max_count=1)
     assert len(fired) <= 1
+
+
+def test_update_plasticity_is_a_noop_when_connectome_has_no_kenyon_cells():
+    cell_groups = _cell_groups()
+    cell_groups["kenyon_cells"] = torch.tensor([], dtype=torch.int64)
+    session, _ = _make_session(["neutral", "neutral"], cell_groups=cell_groups)
+
+    # Must not raise - the eligibility/plasticity machinery simply never engages.
+    session.advance(4)
+
+
+def test_plasticity_depresses_kc_to_avoidance_mbon_synapse_under_a_reward_context():
+    # sweet -> kc (huge weight, guaranteed to fire the KC whenever sweet fires) -> the
+    # real KC->avoidance-MBON edge under test, initial weight 2.0. "honig" exactly
+    # matches the positive context anchor (see _make_session), so this word injects a
+    # strong PAM/reward drive every step - which should depress this edge (avoidance-
+    # MBONs are depressed by reward, see plasticity.py).
+    synapses = _synapses_with_edges(
+        [(INDEX["sweet"], INDEX["kc"], 50.0), (INDEX["kc"], INDEX["mbon_avoidance"], 2.0)]
+    )
+    session, _ = _make_session(
+        ["honig"] * 10,
+        synapses=synapses,
+        sim_ms_per_word=6.0,
+        plasticity_update_interval_steps=1,
+        plasticity_learning_rate=0.05,
+    )
+
+    session.advance(30)
+
+    updated_weight = session.memory_snapshot()["avoidance_edge_weights"][0]
+    assert updated_weight < 2.0
+
+
+def test_memory_snapshot_reflects_current_edge_weights():
+    synapses = _synapses_with_edges(
+        [(INDEX["kc"], INDEX["mbon_avoidance"], 3.0), (INDEX["kc"], INDEX["mbon_approach"], 4.0)]
+    )
+    session, _ = _make_session(["neutral"], synapses=synapses)
+
+    snapshot = session.memory_snapshot()
+
+    assert snapshot["avoidance_edge_weights"].tolist() == pytest.approx([3.0])
+    assert snapshot["approach_edge_weights"].tolist() == pytest.approx([4.0])
+
+
+def test_load_memory_applies_a_matching_shaped_snapshot():
+    synapses = _synapses_with_edges(
+        [(INDEX["kc"], INDEX["mbon_avoidance"], 3.0), (INDEX["kc"], INDEX["mbon_approach"], 4.0)]
+    )
+    session, _ = _make_session(["neutral"], synapses=synapses)
+
+    applied = session.load_memory(
+        {"avoidance_edge_weights": numpy.array([1.5]), "approach_edge_weights": numpy.array([2.5])}
+    )
+
+    assert applied is True
+    snapshot = session.memory_snapshot()
+    assert snapshot["avoidance_edge_weights"].tolist() == pytest.approx([1.5])
+    assert snapshot["approach_edge_weights"].tolist() == pytest.approx([2.5])
+
+
+def test_load_memory_rejects_a_snapshot_missing_expected_keys():
+    session, _ = _make_session(["neutral"])
+
+    assert session.load_memory({}) is False
+
+
+def test_load_memory_rejects_a_mismatched_avoidance_edge_count():
+    synapses = _synapses_with_edges(
+        [(INDEX["kc"], INDEX["mbon_avoidance"], 3.0), (INDEX["kc"], INDEX["mbon_approach"], 4.0)]
+    )
+    session, _ = _make_session(["neutral"], synapses=synapses)
+
+    applied = session.load_memory(
+        {"avoidance_edge_weights": numpy.array([1.0, 2.0]), "approach_edge_weights": numpy.array([1.0])}
+    )
+
+    assert applied is False
+
+
+def test_load_memory_rejects_a_mismatched_approach_edge_count():
+    synapses = _synapses_with_edges(
+        [(INDEX["kc"], INDEX["mbon_avoidance"], 3.0), (INDEX["kc"], INDEX["mbon_approach"], 4.0)]
+    )
+    session, _ = _make_session(["neutral"], synapses=synapses)
+
+    applied = session.load_memory(
+        {"avoidance_edge_weights": numpy.array([1.0]), "approach_edge_weights": numpy.array([1.0, 2.0])}
+    )
+
+    assert applied is False
+
+
+def test_reset_memory_restores_initial_weights_after_depression():
+    synapses = _synapses_with_edges(
+        [(INDEX["sweet"], INDEX["kc"], 50.0), (INDEX["kc"], INDEX["mbon_avoidance"], 2.0)]
+    )
+    session, _ = _make_session(
+        ["honig"] * 10,
+        synapses=synapses,
+        sim_ms_per_word=6.0,
+        plasticity_update_interval_steps=1,
+        plasticity_learning_rate=0.05,
+    )
+    session.advance(30)
+    assert session.memory_snapshot()["avoidance_edge_weights"][0] < 2.0
+
+    session.reset_memory()
+
+    assert session.memory_snapshot()["avoidance_edge_weights"].tolist() == pytest.approx([2.0])

@@ -102,6 +102,10 @@ DOPAMINE_REWARD_SELECTOR: Selector = [{"cell_class": "DAN", "cell_type": ("prefi
 DOPAMINE_PUNISHMENT_SELECTOR: Selector = [{"cell_class": "DAN", "cell_type": ("prefix", "PPL1")}]
 OCTOPAMINE_AROUSAL_SELECTOR: Selector = [{"cell_type": ("prefix", "OA-")}]
 MBON_SELECTOR: Selector = [{"cell_class": "MBON"}]
+# Kenyon cells: the mushroom body's ~5000 intrinsic neurons, whose sparse (~5%, Turner
+# et al. 2008) odor-coded output synapses onto MBONs are the real substrate for
+# dopamine-gated associative learning (Aso et al. 2014) - see plasticity.py.
+KENYON_CELL_SELECTOR: Selector = [{"cell_class": "Kenyon_Cell"}]
 
 # --- descending/motor behavior readouts ------------------------------------------------
 # Every cell_type below is directly present in the annotation file under this exact

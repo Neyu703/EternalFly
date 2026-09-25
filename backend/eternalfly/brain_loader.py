@@ -87,6 +87,17 @@ AROUSAL_CEILING = 0.020
 # a literal 0.0, which would permanently zero out its normalized readout.
 BEHAVIOR_CEILINGS = {"escape": 0.047, "feeding": 0.018, "backing": 0.047, "turn_left": 0.031, "turn_right": 0.017}
 
+# KC->MBON dopamine-gated plasticity (see plasticity.py). eligibility/recovery time
+# constants are the plan's own targets (~1s tag, ~1h forgetting); the learning rate
+# below is calibrated against the real cached connectome - see this file's git history
+# for the measured run that set it.
+PLASTICITY_LEARNING_RATE = 0.02
+PLASTICITY_ELIGIBILITY_TIME_CONSTANT_MS = 1000.0
+PLASTICITY_RECOVERY_TIME_CONSTANT_MS = 3_600_000.0
+PLASTICITY_UPDATE_INTERVAL_STEPS = 10
+
+MEMORY_PATH = CACHE_DIR / "memory.npz"
+
 
 def channel_config_for(name: str) -> SensoryChannelConfig:
     """The Poisson-injection tuning for one named sensory channel (see
@@ -175,6 +186,10 @@ def build_session_config(embedding_dim: int, device: str = "cpu") -> ReadingSess
         negative_valence_ceiling=NEGATIVE_VALENCE_CEILING,
         arousal_ceiling=AROUSAL_CEILING,
         behavior_ceilings=BEHAVIOR_CEILINGS,
+        plasticity_learning_rate=PLASTICITY_LEARNING_RATE,
+        plasticity_eligibility_time_constant_ms=PLASTICITY_ELIGIBILITY_TIME_CONSTANT_MS,
+        plasticity_recovery_time_constant_ms=PLASTICITY_RECOVERY_TIME_CONSTANT_MS,
+        plasticity_update_interval_steps=PLASTICITY_UPDATE_INTERVAL_STEPS,
         device=device,
     )
 
@@ -211,3 +226,44 @@ def build_reading_session(tokens: list[str], device: str = "cpu") -> ReadingSess
         tokens=tokens,
         config=config,
     )
+
+
+def save_memory(session: ReadingSession) -> None:
+    """Atomically persist the session's current real KC->MBON synapse weights to
+    MEMORY_PATH (write to a temp file, then rename - a crash mid-write can never leave
+    a corrupt memory.npz, since the rename is the only step that makes the new file
+    visible under the real name). See server.py for when this is called: on every book
+    change, periodically, and at shutdown."""
+    CACHE_DIR.mkdir(exist_ok=True)
+    tmp_path = CACHE_DIR / "memory.tmp.npz"
+    numpy.savez(tmp_path, **session.memory_snapshot())
+    tmp_path.replace(MEMORY_PATH)
+
+
+def load_memory_into_session(session: ReadingSession) -> None:
+    """Load a previously saved memory.npz into session if present and shape-compatible
+    with this connectome cache (see ReadingSession.load_memory); otherwise leaves the
+    session's fresh, un-learned weights untouched and logs why."""
+    if not MEMORY_PATH.exists():
+        print("no persisted memory found, starting fresh")
+        return
+    data = numpy.load(MEMORY_PATH)
+    if session.load_memory(dict(data)):
+        print("loaded persisted memory:", MEMORY_PATH)
+    else:
+        print("persisted memory doesn't match this connectome cache's shape, ignoring:", MEMORY_PATH)
+
+
+def delete_persisted_memory_file() -> None:
+    """Delete memory.npz if it exists - the file-only half of a memory reset (see
+    server.py's POST /reset-memory, which calls session.reset_memory() itself
+    separately - this is the delete_persisted_memory_fn it's injected as)."""
+    MEMORY_PATH.unlink(missing_ok=True)
+
+
+def reset_memory(session: ReadingSession) -> None:
+    """Reset the session's KC->MBON weights to their real, un-learned initial values
+    and delete any persisted memory.npz - both halves of a full reset, for callers
+    (e.g. a standalone script) that don't go through server.py's endpoint."""
+    session.reset_memory()
+    delete_persisted_memory_file()

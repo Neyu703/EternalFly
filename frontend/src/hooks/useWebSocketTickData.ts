@@ -24,6 +24,7 @@ type RawTick = {
   total_words: number;
   emotions: Record<string, number>;
   rating_0_10: number;
+  learned_valence: number;
   region_activity: Record<string, number>;
   behaviors: Record<string, number>;
   senses: Record<string, number>;
@@ -50,6 +51,7 @@ function toTickData(raw: RawTick): TickData {
     totalWords: raw.total_words,
     emotions: raw.emotions,
     rating0To10: raw.rating_0_10,
+    learnedValence: raw.learned_valence,
     regionActivity: raw.region_activity,
     behaviors: raw.behaviors,
     senses: raw.senses,

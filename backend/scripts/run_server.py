@@ -13,7 +13,7 @@ from pathlib import Path
 import torch
 import uvicorn
 
-from eternalfly.brain_loader import build_reading_session
+from eternalfly.brain_loader import build_reading_session, delete_persisted_memory_file, load_memory_into_session, save_memory
 from eternalfly.reading_session import ReadingSession
 from eternalfly.server import create_app
 from eternalfly.text_encoder import tokenize_text
@@ -37,7 +37,13 @@ def build_session() -> ReadingSession:
     return build_reading_session(tokens, device=device)
 
 
-app = create_app(build_session(), calibre_library_path=CALIBRE_LIBRARY_PATH)
+app = create_app(
+    build_session(),
+    calibre_library_path=CALIBRE_LIBRARY_PATH,
+    load_memory_fn=load_memory_into_session,
+    save_memory_fn=save_memory,
+    delete_persisted_memory_fn=delete_persisted_memory_file,
+)
 
 
 def main() -> None:

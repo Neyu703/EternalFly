@@ -7,6 +7,11 @@ export type TickData = {
   totalWords: number;
   emotions: Record<string, number>;
   rating0To10: number;
+  /** -1..1, from real MBON approach-avoidance activity, shaped by dopamine-gated
+   * KC->MBON plasticity (see backend/eternalfly/plasticity.py) - the fly's actual
+   * learned opinion, which can drift over a session as it reads. Distinct from
+   * regionActivity's raw instinct/teaching signal, which never changes. */
+  learnedValence: number;
   /** The real injected teaching signal's own activity: reward (PAM), punishment
    * (PPL1), arousal (OA) - distinct from emotions/rating, which read the real
    * downstream MBON approach/avoidance activity those neurons teach. */

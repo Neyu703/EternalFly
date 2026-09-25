@@ -8,7 +8,10 @@ into Poisson spikes in the real sensory receptor neurons those words actually ma
 (Nature 634:210) -validated, event-driven leaky-integrate-and-fire simulation runs on
 the real connectome, and its spiking activity is decoded back into emotions/rating
 (from real downstream mushroom-body output neurons) and real descending/motor readouts
-(escape jump, feeding, turning, ...), streamed live to a 3D dashboard.
+(escape jump, feeding, turning, ...), streamed live to a 3D dashboard that shows the fly
+visibly react and its individual firing neurons as a spike cloud. Real dopamine-gated
+Kenyon-cell -> MBON plasticity (Aso et al. 2014) lets the fly's opinion of a book
+actually change as it reads, persisted across restarts.
 
 ## Architecture
 
@@ -16,12 +19,17 @@ the real connectome, and its spiking activity is decoded back into emotions/rati
   into real sensory drives; `eternalfly/reading_session.py` runs the event-driven LIF
   simulation (`eternalfly/lif.py`, `eternalfly/synapses.py`) over the cached FlyWire
   connectome and decodes emotions/behaviors/brain activity from real named cell groups
-  (`eternalfly/cell_groups.py`); `eternalfly/server.py` streams per-frame results over
-  a WebSocket (`/ws`). `eternalfly/brain_loader.py` is the one place that loads the
-  real connectome cache and the real embedding model.
+  (`eternalfly/cell_groups.py`); `eternalfly/plasticity.py` depresses real Kenyon-cell
+  -> MBON synapses under dopamine, persisted to `backend/data/cache/memory.npz`;
+  `eternalfly/server.py` streams per-frame results over a WebSocket (`/ws`), including
+  each frame's fired-neuron indices as a separate binary message for the frontend's
+  spike cloud. `eternalfly/brain_loader.py` is the one place that loads the real
+  connectome cache and the real embedding model.
 - **`frontend/`** — React + TypeScript + Three.js (`@react-three/fiber`), packaged as a
-  desktop app with [Tauri](https://tauri.app/). Renders the fly/book scene, a 3D brain
-  with per-region glow, live neural activity charts, and playback controls.
+  desktop app with [Tauri](https://tauri.app/). Renders the fly/book scene with
+  behavior-driven reactions (`Fly.tsx`), a 3D brain with per-region glow and a per-
+  neuron spike-cloud point cloud (`SpikeCloud.tsx`), live neural activity charts
+  (instinct vs. learned valence), and playback controls.
 
 ## Setup
 
@@ -47,6 +55,10 @@ against the cached connectome:
 ```bash
 .venv\Scripts\python.exe -m scripts.audit_brain
 ```
+
+An existing `backend/data/cache/` built before Kenyon cells were added to it (needed
+for KC->MBON plasticity) needs `build_connectome_cache` re-run once — it errors with a
+missing `kenyon_cells` cache entry otherwise.
 
 ## Running
 

@@ -43,6 +43,7 @@ SAMPLE_FRAME_RESULT = FrameResult(
         "sadness": 0.5, "disgust": 0.6, "anger": 0.7, "anticipation": 0.8,
     },
     rating_0_10=6.5,
+    learned_valence=0.3,
     region_activity={"reward": 0.1, "punishment": 0.2, "arousal": 0.3},
     behaviors=_ZERO_BEHAVIORS,
     senses={"sweet": 0.4},
@@ -77,6 +78,7 @@ def test_frame_result_to_json_returns_dict_with_exact_keys_and_values_plus_achie
             "sadness": 0.5, "disgust": 0.6, "anger": 0.7, "anticipation": 0.8,
         },
         "rating_0_10": 6.5,
+        "learned_valence": 0.3,
         "region_activity": {"reward": 0.1, "punishment": 0.2, "arousal": 0.3},
         "behaviors": _ZERO_BEHAVIORS,
         "senses": {"sweet": 0.4},
@@ -192,6 +194,7 @@ class FakeIncrementingSession:
             total_words=10,
             emotions=_ZERO_EMOTIONS,
             rating_0_10=float(self._call_count),
+            learned_valence=0.0,
             region_activity=_ZERO_REGION_ACTIVITY,
             behaviors=_ZERO_BEHAVIORS,
             senses={},
@@ -552,6 +555,7 @@ class FakeControllableSession:
         self.advance_step_counts: list[int] = []
         self.restart_call_count = 0
         self.received_tokens: list[str] | None = None
+        self.reset_memory_call_count = 0
 
     def advance(self, step_count: int) -> FrameResult:
         """Return a scripted FrameResult, finished from self._finished_on_call onward."""
@@ -565,6 +569,7 @@ class FakeControllableSession:
             total_words=10,
             emotions=_ZERO_EMOTIONS,
             rating_0_10=float(self._call_count),
+            learned_valence=0.0,
             region_activity=_ZERO_REGION_ACTIVITY,
             behaviors=_ZERO_BEHAVIORS,
             senses={},
@@ -601,6 +606,11 @@ class FakeControllableSession:
         """Return an empty tensor - this fake's control-message tests don't care about
         the spike-cloud binary message's contents, only that it doesn't crash."""
         return torch.tensor([], dtype=torch.int64)
+
+    def reset_memory(self) -> None:
+        """Record the reset, mirroring how the real ReadingSession.reset_memory() has
+        no return value - see POST /reset-memory."""
+        self.reset_memory_call_count += 1
 
 
 def _drain_websocket_until(websocket, condition, max_messages: int = 500) -> None:
@@ -715,3 +725,111 @@ def test_ws_autoplay_mode_shuffle_falls_back_to_restart_when_no_library_configur
 
     assert fake_session.restart_call_count == 1
     assert fake_session.received_tokens is None
+
+
+def test_ws_autoplay_mode_shuffle_saves_memory_before_loading_the_new_book(tmp_path):
+    library_path = _create_minimal_calibre_library_with_real_txt_book(tmp_path)
+    fake_session = FakeControllableSession(finished_on_call=20)
+    saved_sessions = []
+    client = TestClient(
+        create_app(
+            fake_session,
+            frame_interval_seconds=0,
+            calibre_library_path=library_path,
+            save_memory_fn=saved_sessions.append,
+        )
+    )
+
+    with client.websocket_connect("/ws") as websocket:
+        websocket.send_json({"type": "set_autoplay_mode", "mode": "shuffle"})
+        _drain_websocket_until(websocket, lambda: fake_session.received_tokens is not None)
+
+    assert saved_sessions == [fake_session]
+
+
+def test_load_book_endpoint_saves_memory_before_loading_the_new_book(tmp_path):
+    text_path = tmp_path / "story.txt"
+    text_path.write_text("The dragon flew.", encoding="utf-8")
+    fake_session = FakeSessionTrackingLoadNewText()
+    saved_sessions = []
+    client = TestClient(create_app(fake_session, save_memory_fn=saved_sessions.append))
+
+    client.post("/load-book", json={"path": str(text_path)})
+
+    assert saved_sessions == [fake_session]
+
+
+def test_load_book_endpoint_does_not_save_memory_when_no_save_memory_fn_is_configured(tmp_path):
+    text_path = tmp_path / "story.txt"
+    text_path.write_text("The dragon flew.", encoding="utf-8")
+    fake_session = FakeSessionTrackingLoadNewText()
+    client = TestClient(create_app(fake_session))
+
+    response = client.post("/load-book", json={"path": str(text_path)})
+
+    assert response.status_code == 200
+
+
+def test_lifespan_loads_memory_on_startup():
+    fake_session = FakeIncrementingSession()
+    loaded_sessions = []
+    app = create_app(fake_session, load_memory_fn=loaded_sessions.append)
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as websocket:
+            _receive_frame(websocket)
+
+    assert loaded_sessions == [fake_session]
+
+
+def test_lifespan_saves_memory_on_shutdown():
+    fake_session = FakeIncrementingSession()
+    saved_sessions = []
+    app = create_app(fake_session, save_memory_fn=saved_sessions.append)
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as websocket:
+            _receive_frame(websocket)
+
+    assert saved_sessions == [fake_session]
+
+
+def test_ws_saves_memory_periodically_once_the_word_interval_is_crossed():
+    fake_session = FakeIncrementingSession()
+    saved_sessions = []
+    client = TestClient(
+        create_app(
+            fake_session,
+            frame_interval_seconds=0,
+            memory_save_word_interval=2,
+            save_memory_fn=saved_sessions.append,
+        )
+    )
+
+    with client.websocket_connect("/ws") as websocket:
+        _drain_websocket_until(websocket, lambda: len(saved_sessions) > 0)
+
+    assert saved_sessions == [fake_session]
+
+
+def test_reset_memory_endpoint_resets_session_and_deletes_persisted_file():
+    fake_session = FakeControllableSession()
+    deleted_call_count = []
+    client = TestClient(create_app(fake_session, delete_persisted_memory_fn=lambda: deleted_call_count.append(1)))
+
+    response = client.post("/reset-memory")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+    assert fake_session.reset_memory_call_count == 1
+    assert deleted_call_count == [1]
+
+
+def test_reset_memory_endpoint_works_without_a_delete_persisted_memory_fn_configured():
+    fake_session = FakeControllableSession()
+    client = TestClient(create_app(fake_session))
+
+    response = client.post("/reset-memory")
+
+    assert response.status_code == 200
+    assert fake_session.reset_memory_call_count == 1
