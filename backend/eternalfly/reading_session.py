@@ -10,7 +10,6 @@ from eternalfly.lif import LIFParameters, LIFState, create_initial_state, step
 from eternalfly.session_helpers import (
     compute_pool_spike_rate,
     inject_currents_at_indices,
-    word_index_for_tick,
 )
 from eternalfly.text_encoder import project_arousal_to_currents, project_token_to_currents, project_valence_to_currents
 
@@ -93,6 +92,8 @@ class ReadingSession:
         self._state: LIFState = create_initial_state(neuron_count, device=config.device)
         self._previous_spikes = torch.zeros(neuron_count, device=config.device)
         self._tick_number = 0
+        self._word_index = 0
+        self._ticks_into_current_word = 0
         self._is_paused = False
         self._speed_multiplier = 1.0
         self._last_tick_result: TickResult | None = None
@@ -243,11 +244,15 @@ class ReadingSession:
             raise ValueError("tokens must not be empty")
         self._tokens = tokens
         self._tick_number = 0
+        self._word_index = 0
+        self._ticks_into_current_word = 0
 
     def restart(self) -> None:
         """Restart the current book from its first word, keeping its tokens and the
         simulated brain's ongoing LIF/engagement state intact."""
         self._tick_number = 0
+        self._word_index = 0
+        self._ticks_into_current_word = 0
 
     def set_paused(self, paused: bool) -> None:
         """Pause or resume tick() advancing the simulation. While paused, tick() keeps
@@ -294,8 +299,16 @@ class ReadingSession:
         return result
 
     def _advance_single_tick(self) -> TickResult:
-        """Advance the session by exactly one raw simulation tick and return its result."""
-        word_index = word_index_for_tick(self._tick_number, self._effective_ticks_per_word())
+        """Advance the session by exactly one raw simulation tick and return its result.
+
+        Word position is tracked as running state (self._word_index/_ticks_into_current_word)
+        advanced one step at a time, rather than recomputed each tick as
+        tick_number // effective_ticks_per_word - that recomputation broke as soon as the
+        speed multiplier changed mid-book, since effective_ticks_per_word (the divisor)
+        changes while tick_number (the accumulated dividend) keeps counting every raw tick
+        ever advanced, so a new divisor applied to the same old tick_number could skip
+        ahead by thousands of words or jump backwards onto an already-read one."""
+        word_index = self._word_index
         book_finished = word_index >= len(self._tokens)
         current_word = None if book_finished else self._tokens[word_index]
 
@@ -314,6 +327,11 @@ class ReadingSession:
         page_progress = 1.0 if book_finished else (word_index + 1) / len(self._tokens)
         words_read = len(self._tokens) if book_finished else word_index + 1
         self._tick_number += 1
+        if not book_finished:
+            self._ticks_into_current_word += 1
+            if self._ticks_into_current_word >= self._effective_ticks_per_word():
+                self._ticks_into_current_word = 0
+                self._word_index += 1
 
         tick_result = TickResult(
             current_word=current_word,

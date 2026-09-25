@@ -335,6 +335,34 @@ def test_set_speed_multiplier_non_positive_raises_value_error():
         session.set_speed_multiplier(0.0)
 
 
+def test_word_position_does_not_jump_when_speed_changes_mid_book():
+    # Regression test: word position used to be recomputed every tick as
+    # tick_number // effective_ticks_per_word. tick_number keeps accumulating every raw
+    # tick ever advanced, so once the speed multiplier (the divisor) changed mid-book,
+    # dividing that same large tick_number by the new divisor jumped word_index far
+    # beyond the word actually being read - here that bug would jump straight past the
+    # whole 10-word book. With word position tracked as running state instead, changing
+    # speed must only affect how fast future words advance, not where the fly currently is.
+    tokens = [f"word{i}" for i in range(10)]
+    session = ReadingSession(NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, tokens, _make_config(ticks_per_word=10))
+
+    for _ in range(20):
+        session.tick()
+    for _ in range(4):
+        tick_result = session.tick()
+    assert tick_result.current_word == "word2"
+
+    session.set_speed_multiplier(10.0)  # effective_ticks_per_word floors to 1
+    tick_result = session.tick()
+
+    assert tick_result.current_word == "word2"
+    assert tick_result.book_finished is False
+
+    tick_result = session.tick()
+
+    assert tick_result.current_word == "word3"
+
+
 def test_pool_spike_rate_of_nan_is_never_produced_even_with_empty_pool():
     empty_pool_indices = dict(POOL_INDICES)
     empty_pool_indices["approach"] = torch.tensor([], dtype=torch.int64)
