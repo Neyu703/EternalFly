@@ -7,6 +7,7 @@ already-tested eternalfly functions, mirrors cli_reading_demo.py's setup.
 Run as `python -m scripts.run_server` (from backend/, as the Makefile does) so uvicorn's
 reload subprocess can re-import this module by its "scripts.run_server:app" name."""
 
+import atexit
 import sys
 from pathlib import Path
 
@@ -37,13 +38,24 @@ def build_session() -> ReadingSession:
     return build_reading_session(tokens, device=device)
 
 
+session = build_session()
 app = create_app(
-    build_session(),
+    session,
     calibre_library_path=CALIBRE_LIBRARY_PATH,
     load_memory_fn=load_memory_into_session,
     save_memory_fn=save_memory,
     delete_persisted_memory_fn=delete_persisted_memory_file,
 )
+
+# Belt-and-suspenders on top of create_app's own FastAPI lifespan shutdown hook: atexit
+# runs on normal interpreter exit regardless of platform (unlike a hand-rolled
+# signal.signal(SIGTERM/...) handler, which would risk clobbering uvicorn's own
+# asyncio-based signal handling, and which SIGTERM barely means anything on Windows
+# anyway) - and it also covers uvicorn's own --reload restarts, not just process exit,
+# so a code save mid-session no longer silently drops unsaved learning either. Neither
+# this nor the lifespan hook can do anything about a hard kill (kill -9, Task Manager
+# "End task") - no process can react to those, by design of what a hard kill is.
+atexit.register(save_memory, session)
 
 
 def main() -> None:

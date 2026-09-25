@@ -737,6 +737,11 @@ def test_ws_autoplay_mode_shuffle_saves_memory_before_loading_the_new_book(tmp_p
             frame_interval_seconds=0,
             calibre_library_path=library_path,
             save_memory_fn=saved_sessions.append,
+            # Isolates this test to the book-change save only - the fake session
+            # finishes right at DEFAULT_MEMORY_SAVE_WORD_INTERVAL's own word count, so
+            # without this override the periodic save would also fire and this
+            # assertion would see two calls instead of one.
+            memory_save_word_interval=1000,
         )
     )
 
@@ -807,9 +812,15 @@ def test_ws_saves_memory_periodically_once_the_word_interval_is_crossed():
     )
 
     with client.websocket_connect("/ws") as websocket:
+        # frame_interval_seconds=0 means the server-side loop races ahead of this
+        # drain loop's own condition check - by the time len(saved_sessions) > 0 is
+        # observed, a second interval crossing may already have queued another save,
+        # so this only asserts "at least one, and only ever this session", not exactly
+        # one call.
         _drain_websocket_until(websocket, lambda: len(saved_sessions) > 0)
 
-    assert saved_sessions == [fake_session]
+    assert len(saved_sessions) >= 1
+    assert all(saved_session is fake_session for saved_session in saved_sessions)
 
 
 def test_reset_memory_endpoint_resets_session_and_deletes_persisted_file():

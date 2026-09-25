@@ -28,7 +28,12 @@ DEFAULT_WORDS_PER_MINUTE = 150.0
 DEFAULT_LOOKAHEAD_WORD_COUNT = 50
 DEFAULT_LOOKAHEAD_INTERVAL_SECONDS = 1.0
 DEFAULT_SPIKE_CLOUD_MAX_NEURON_COUNT = 20_000
-DEFAULT_MEMORY_SAVE_WORD_INTERVAL = 500
+# Small on purpose: this is the exposure window for how much learning a killed process
+# (not a clean shutdown - see run_server.py's atexit hook and this module's lifespan
+# hook for those) can lose. The saved npz is a few hundred bytes, so saving often is
+# effectively free - the interval exists to avoid a save on literally every word, not
+# because saves are expensive.
+DEFAULT_MEMORY_SAVE_WORD_INTERVAL = 20
 
 
 def encode_fired_neuron_indices(fired_neuron_indices: torch.Tensor) -> bytes:
