@@ -83,6 +83,7 @@ def _make_config(**overrides) -> ReadingSessionConfig:
         positive_valence_ceiling=1.0,
         negative_valence_ceiling=1.0,
         arousal_ceiling=1.0,
+        behavior_ceilings={"escape": 1.0, "feeding": 1.0, "backing": 1.0, "turn_left": 1.0, "turn_right": 1.0},
         device="cpu",
     )
     defaults.update(overrides)
@@ -207,6 +208,24 @@ def test_neutral_word_never_drives_the_escape_behavior_through_the_same_synapse(
     assert result.behaviors["escape"] == 0.0
 
 
+def test_behavior_readout_is_normalized_against_its_own_ceiling_not_the_raw_rate():
+    # Same driven escape readout as above, but this time with a behavior_ceilings entry
+    # set far below the raw achieved rate - proving the value FrameResult reports is
+    # actually rescaled (and clamped to 1.0), not the raw pool rate passed straight
+    # through (see normalize_rate, emotion_decoder.py).
+    synapses = _synapses_with_edge(INDEX["sweet"], INDEX["escape"], weight=50.0)
+    session, _ = _make_session(
+        ["honig", "honig", "honig"],
+        synapses=synapses,
+        sim_ms_per_word=6.0,
+        behavior_ceilings={"escape": 1e-6, "feeding": 1.0, "backing": 1.0, "turn_left": 1.0, "turn_right": 1.0},
+    )
+
+    result = session.advance(6)
+
+    assert result.behaviors["escape"] == 1.0
+
+
 def test_positive_context_valence_injects_into_the_reward_pam_readout():
     session, _ = _make_session(["honig", "honig"], sim_ms_per_word=6.0)
 
@@ -326,3 +345,31 @@ def test_sim_ms_per_word_and_dt_ms_properties_expose_the_configured_values():
 
     assert session.sim_ms_per_word == 42.0
     assert session.dt_ms == SHIU_2024_PARAMETERS.dt_ms
+
+
+def test_last_frame_fired_neuron_indices_is_empty_before_any_advance_call():
+    session, _ = _make_session(["neutral"])
+
+    assert session.last_frame_fired_neuron_indices(max_count=100).tolist() == []
+
+
+def test_last_frame_fired_neuron_indices_reports_neurons_that_spiked_via_a_real_synapse():
+    synapses = _synapses_with_edge(INDEX["sweet"], INDEX["escape"], weight=50.0)
+    session, _ = _make_session(["honig", "honig"], synapses=synapses, sim_ms_per_word=6.0)
+
+    session.advance(6)
+
+    fired = session.last_frame_fired_neuron_indices(max_count=100).tolist()
+    assert INDEX["sweet"] in fired
+    assert INDEX["escape"] in fired
+    assert INDEX["bitter"] not in fired
+
+
+def test_last_frame_fired_neuron_indices_respects_max_count():
+    synapses = _synapses_with_edge(INDEX["sweet"], INDEX["escape"], weight=50.0)
+    session, _ = _make_session(["honig", "honig"], synapses=synapses, sim_ms_per_word=6.0)
+
+    session.advance(6)
+
+    fired = session.last_frame_fired_neuron_indices(max_count=1)
+    assert len(fired) <= 1

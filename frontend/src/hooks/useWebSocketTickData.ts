@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { RefObject } from "react";
 import type { TickData } from "../types";
 
 /** What the fly does once it finishes reading a book. */
@@ -34,6 +35,12 @@ type RawTick = {
   book_finished: boolean;
 };
 
+/** The most recent binary spike-cloud message's decoded neuron indices (see server.py's
+ * encode_fired_neuron_indices), plus a version counter bumped on every new message -
+ * lets a consumer (SpikeCloud) detect "this is a new frame's data" by comparing
+ * versions, without React state/a re-render for up to 20k indices every tick. */
+export type FiredNeuronIndices = { indices: Uint32Array; version: number };
+
 /** Converts one raw server tick into the frontend's camelCase TickData shape. */
 function toTickData(raw: RawTick): TickData {
   return {
@@ -62,16 +69,23 @@ function toTickData(raw: RawTick): TickData {
  * connection drops, so a server restart doesn't permanently strand the UI — the most
  * recently sent control message of each type is replayed on every (re)connect, so a chosen
  * pause/speed/autoplay setting survives a dropped connection.
+ *
+ * Each simulation frame arrives as two WebSocket messages: the JSON FrameResult (a
+ * string), immediately followed by a binary message carrying that frame's fired-neuron
+ * indices for the spike-cloud visualization (see server.py's stream_ticks /
+ * encode_fired_neuron_indices). Routed here by payload type rather than send order.
  */
 export function useWebSocketTickData(url: string): {
   tick: TickData | null;
   sendControlMessage: (message: ControlMessage) => void;
+  firedNeuronIndicesRef: RefObject<FiredNeuronIndices>;
 } {
   const [tick, setTick] = useState<TickData | null>(null);
   const urlRef = useRef(url);
   urlRef.current = url;
   const socketRef = useRef<WebSocket | null>(null);
   const lastControlMessageByTypeRef = useRef(new Map<ControlMessage["type"], ControlMessage>());
+  const firedNeuronIndicesRef = useRef<FiredNeuronIndices>({ indices: new Uint32Array(0), version: 0 });
 
   useEffect(() => {
     let socket: WebSocket | null = null;
@@ -80,6 +94,7 @@ export function useWebSocketTickData(url: string): {
 
     const connect = () => {
       socket = new WebSocket(urlRef.current);
+      socket.binaryType = "arraybuffer";
       socketRef.current = socket;
       socket.onopen = () => {
         for (const message of lastControlMessageByTypeRef.current.values()) {
@@ -87,8 +102,15 @@ export function useWebSocketTickData(url: string): {
         }
       };
       socket.onmessage = (event) => {
-        const raw = JSON.parse(event.data) as RawTick;
-        setTick(toTickData(raw));
+        if (typeof event.data === "string") {
+          const raw = JSON.parse(event.data) as RawTick;
+          setTick(toTickData(raw));
+        } else {
+          firedNeuronIndicesRef.current = {
+            indices: new Uint32Array(event.data as ArrayBuffer),
+            version: firedNeuronIndicesRef.current.version + 1,
+          };
+        }
       };
       socket.onclose = () => {
         if (!stopped) reconnectTimeoutId = setTimeout(connect, 1000);
@@ -110,5 +132,5 @@ export function useWebSocketTickData(url: string): {
     }
   }, []);
 
-  return { tick, sendControlMessage };
+  return { tick, sendControlMessage, firedNeuronIndicesRef };
 }

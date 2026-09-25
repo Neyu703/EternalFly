@@ -102,6 +102,44 @@
   transition: width 0.3s ease;
 }
 
+.hud-senses-section {
+  max-width: 280px;
+}
+
+.hud-senses {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  max-width: 280px;
+}
+
+.hud-sense-row {
+  display: grid;
+  grid-template-columns: 62px 60px;
+  align-items: center;
+  gap: 6px;
+}
+
+.hud-sense-label {
+  font-size: 10px;
+  text-transform: capitalize;
+  color: #c3ccd4;
+}
+
+.hud-sense-track {
+  width: 60px;
+  background: #1c2733;
+  border-radius: 6px;
+  overflow: hidden;
+  height: 8px;
+}
+
+.hud-sense-fill {
+  height: 100%;
+  background: #7fd4ff;
+  transition: width 0.3s ease;
+}
+
 .hud-bored-banner {
   padding: 8px 14px;
   background: #3a2a1a;

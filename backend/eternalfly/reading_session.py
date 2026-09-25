@@ -19,7 +19,7 @@ from dataclasses import dataclass, replace
 import numpy
 import torch
 
-from eternalfly.emotion_decoder import ExponentialMovingAverage, compute_emotions, compute_rating, pool_rates_to_valence_arousal
+from eternalfly.emotion_decoder import ExponentialMovingAverage, compute_emotions, compute_rating, normalize_rate, pool_rates_to_valence_arousal
 from eternalfly.lif import SynapticLIFParameters, SynapticLIFState, create_initial_synaptic_state, poisson_forced_spikes, synaptic_step
 from eternalfly.readout import accumulate_spike_counts, build_group_readout_matrix, readout_rates
 from eternalfly.semantic_encoder import ChannelCalibration, EmbedFn, WordEmbeddingCache, channel_drives, context_valence, semantic_odor
@@ -65,6 +65,7 @@ class ReadingSessionConfig:
     positive_valence_ceiling: float
     negative_valence_ceiling: float
     arousal_ceiling: float
+    behavior_ceilings: dict[str, float]  # keyed like BEHAVIOR_NAMES - see scripts/audit_brain.py
     device: str = "cpu"
 
 
@@ -79,7 +80,7 @@ class FrameResult:
     emotions: dict[str, float]
     rating_0_10: float
     region_activity: dict[str, float]  # reward/punishment/arousal - the injected teaching signal's own activity
-    behaviors: dict[str, float]
+    behaviors: dict[str, float]  # real descending/motor readouts, normalized 0..1 against behavior_ceilings
     senses: dict[str, float]  # current word's channel drive levels (0..1), not a spike-rate readout
     neuropil_activity: dict[str, float]
     steps_simulated: int
@@ -156,6 +157,7 @@ class ReadingSession:
         self._steps_per_word = max(1, round(config.sim_ms_per_word / config.lif_parameters.dt_ms))
 
         self._state: SynapticLIFState = create_initial_synaptic_state(neuron_count, config.lif_parameters, device=config.device)
+        self._last_frame_spike_counts = torch.zeros(neuron_count, device=config.device)
         self._word_index = 0
         self._steps_into_word = 0
         self._words_simulated_total = 0
@@ -240,7 +242,18 @@ class ReadingSession:
                 steps_run += 1
                 book_finished = self._word_index >= len(self._tokens)
 
+            self._last_frame_spike_counts = frame_spike_counts
             return self._build_frame_result(frame_spike_counts, steps_run, book_finished)
+
+    def last_frame_fired_neuron_indices(self, max_count: int) -> torch.Tensor:
+        """Return up to max_count neuron indices that fired at least once during the
+        most recent advance() call - for the frontend's spike-cloud visualization
+        (see server.py), sent as a separate binary WebSocket message rather than
+        bloating the JSON frame result. Arbitrarily truncated (not sampled) if more
+        neurons fired than max_count - which ones get dropped doesn't matter for a
+        purely visual glow effect. Empty before the first advance() call."""
+        fired_indices = torch.nonzero(self._last_frame_spike_counts, as_tuple=True)[0]
+        return fired_indices[:max_count]
 
     def _advance_single_step(self) -> torch.Tensor:
         """Advance exactly one dt_ms step and return its spike tensor."""
@@ -326,7 +339,10 @@ class ReadingSession:
 
         neuropil_row_count = len(self._readout_row_names) - len(BEHAVIOR_NAMES) - len(REGION_ACTIVITY_GROUP_NAMES) - len(MBON_GROUP_NAMES)
         neuropil_activity = {name: rates_by_name[name] for name in self._readout_row_names[:neuropil_row_count]}
-        behaviors = {name: rates_by_name[f"behavior_{name}"] for name in BEHAVIOR_NAMES}
+        behaviors = {
+            name: normalize_rate(rates_by_name[f"behavior_{name}"], self._config.behavior_ceilings[name])
+            for name in BEHAVIOR_NAMES
+        }
         region_activity = {key: rates_by_name[key] for key in REGION_ACTIVITY_GROUP_NAMES}
 
         mbon_approach_raw = raw_rates[self._readout_row_names.index("approach")].item()

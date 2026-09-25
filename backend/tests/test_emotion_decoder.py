@@ -4,8 +4,25 @@ from eternalfly.emotion_decoder import (
     ExponentialMovingAverage,
     compute_emotions,
     compute_rating,
+    normalize_rate,
     pool_rates_to_valence_arousal,
 )
+
+
+def test_normalize_rate_scales_a_raw_rate_by_its_ceiling():
+    assert normalize_rate(0.01, ceiling=0.02) == pytest.approx(0.5)
+
+
+def test_normalize_rate_clamps_above_one():
+    assert normalize_rate(1.0, ceiling=0.02) == 1.0
+
+
+def test_normalize_rate_clamps_below_zero():
+    assert normalize_rate(-1.0, ceiling=0.02) == 0.0
+
+
+def test_normalize_rate_returns_zero_for_zero_ceiling():
+    assert normalize_rate(0.5, ceiling=0.0) == 0.0
 
 
 def test_exponential_moving_average_raises_on_non_positive_time_constant():

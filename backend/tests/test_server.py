@@ -6,6 +6,7 @@ import time
 
 import ebooklib.epub
 import pytest
+import torch
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
@@ -15,6 +16,7 @@ from eternalfly.server import (
     compute_achieved_words_per_minute,
     compute_step_count,
     create_app,
+    encode_fired_neuron_indices,
     frame_result_to_json,
 )
 
@@ -50,6 +52,16 @@ SAMPLE_FRAME_RESULT = FrameResult(
     wants_new_book=False,
     book_finished=False,
 )
+
+
+def _receive_frame(websocket) -> dict:
+    """Receive one full frame: the JSON FrameResult message, then the binary spike-
+    cloud message stream_ticks always sends right after it (see server.py) - tests
+    that only care about the JSON side still need to drain the binary one so the next
+    receive_json() doesn't desync onto it."""
+    message = websocket.receive_json()
+    websocket.receive_bytes()
+    return message
 
 
 def test_frame_result_to_json_returns_dict_with_exact_keys_and_values_plus_achieved_wpm():
@@ -110,6 +122,21 @@ def test_compute_achieved_words_per_minute_returns_zero_for_non_positive_elapsed
     assert compute_achieved_words_per_minute(words_delta=5, elapsed_seconds=0.0) == 0.0
 
 
+def test_encode_fired_neuron_indices_round_trips_via_numpy_uint32():
+    import numpy
+
+    encoded = encode_fired_neuron_indices(torch.tensor([1, 5, 139254], dtype=torch.int64))
+
+    decoded = numpy.frombuffer(encoded, dtype="<u4")
+    assert decoded.tolist() == [1, 5, 139254]
+
+
+def test_encode_fired_neuron_indices_empty_tensor_encodes_to_empty_bytes():
+    encoded = encode_fired_neuron_indices(torch.tensor([], dtype=torch.int64))
+
+    assert encoded == b""
+
+
 def test_run_lookahead_loop_calls_precompute_upcoming_words_repeatedly():
     calls: list[int] = []
 
@@ -150,6 +177,11 @@ class FakeIncrementingSession:
     def precompute_upcoming_words(self, word_count: int) -> None:
         """No-op: exercised by create_app's background lookahead loop."""
 
+    def last_frame_fired_neuron_indices(self, max_count: int) -> torch.Tensor:
+        """Return a distinguishable fired-neuron index per call, so the spike-cloud
+        binary message can be checked to actually reflect the latest advance() call."""
+        return torch.tensor([self._call_count], dtype=torch.int64)
+
     def advance(self, step_count: int) -> FrameResult:
         """Return a FrameResult whose rating increases by one on each successive call."""
         self._call_count += 1
@@ -176,7 +208,7 @@ def test_ws_first_message_reflects_first_advance_call():
     client = TestClient(app)
 
     with client.websocket_connect("/ws") as websocket:
-        first_message = websocket.receive_json()
+        first_message = _receive_frame(websocket)
 
     assert first_message["current_word"] == "word1"
     assert first_message["rating_0_10"] == 1.0
@@ -193,12 +225,36 @@ def test_ws_second_message_reflects_second_advance_call_not_a_cached_first_resul
     client = TestClient(app)
 
     with client.websocket_connect("/ws") as websocket:
-        first_message = websocket.receive_json()
-        second_message = websocket.receive_json()
+        first_message = _receive_frame(websocket)
+        second_message = _receive_frame(websocket)
 
     assert first_message["current_word"] == "word1"
     assert second_message["current_word"] == "word2"
     assert second_message["rating_0_10"] == 2.0
+
+
+def test_ws_sends_the_spike_cloud_binary_message_right_after_each_json_frame():
+    """End-to-end check that stream_ticks pairs every JSON frame with the binary
+    fired-neuron-indices message from the same advance() call, in order - not a stale
+    or swapped one (see encode_fired_neuron_indices's unit tests for the encoding
+    itself, and last_frame_fired_neuron_indices's own tests in test_reading_session.py
+    for where the indices come from)."""
+    import numpy
+
+    fake_session = FakeIncrementingSession()
+    app = create_app(fake_session, frame_interval_seconds=0)
+    client = TestClient(app)
+
+    with client.websocket_connect("/ws") as websocket:
+        first_json = websocket.receive_json()
+        first_bytes = websocket.receive_bytes()
+        second_json = websocket.receive_json()
+        second_bytes = websocket.receive_bytes()
+
+    assert first_json["current_word"] == "word1"
+    assert numpy.frombuffer(first_bytes, dtype="<u4").tolist() == [1]
+    assert second_json["current_word"] == "word2"
+    assert numpy.frombuffer(second_bytes, dtype="<u4").tolist() == [2]
 
 
 def test_app_startup_launches_the_background_lookahead_loop():
@@ -212,7 +268,7 @@ def test_app_startup_launches_the_background_lookahead_loop():
     # directly, deliberately not triggering startup (irrelevant to what they check).
     with TestClient(app) as client:
         with client.websocket_connect("/ws") as websocket:
-            websocket.receive_json()
+            _receive_frame(websocket)
 
     assert 9 in calls
 
@@ -223,7 +279,7 @@ def test_ws_client_disconnect_mid_loop_does_not_raise_unhandled_exception():
     client = TestClient(app)
 
     with client.websocket_connect("/ws") as websocket:
-        websocket.receive_json()
+        _receive_frame(websocket)
         websocket.close()
 
 
@@ -378,14 +434,14 @@ def test_load_book_endpoint_does_not_block_the_event_loop_while_parsing(tmp_path
     client = TestClient(create_app(fake_session, frame_interval_seconds=0))
 
     with client.websocket_connect("/ws") as websocket:
-        websocket.receive_json()
+        _receive_frame(websocket)
         load_book_thread = threading.Thread(
             target=lambda: client.post("/load-book", json={"path": str(slow_path)})
         )
         load_book_thread.start()
         # If /load-book blocked the event loop, this would hang until the slow parse
         # finishes; it should instead keep receiving frames the whole time.
-        second_frame = websocket.receive_json()
+        second_frame = _receive_frame(websocket)
         load_book_thread.join(timeout=5)
 
     assert second_frame["current_word"] == "word2"
@@ -541,6 +597,11 @@ class FakeControllableSession:
     def precompute_upcoming_words(self, word_count: int) -> None:
         """No-op: exercised by create_app's background lookahead loop."""
 
+    def last_frame_fired_neuron_indices(self, max_count: int) -> torch.Tensor:
+        """Return an empty tensor - this fake's control-message tests don't care about
+        the spike-cloud binary message's contents, only that it doesn't crash."""
+        return torch.tensor([], dtype=torch.int64)
+
 
 def _drain_websocket_until(websocket, condition, max_messages: int = 500) -> None:
     """Keep receiving frame messages from websocket until condition() is true, raising
@@ -548,7 +609,7 @@ def _drain_websocket_until(websocket, condition, max_messages: int = 500) -> Non
     for _ in range(max_messages):
         if condition():
             return
-        websocket.receive_json()
+        _receive_frame(websocket)
     if not condition():
         raise AssertionError(f"condition not met within {max_messages} frames")
 
@@ -558,17 +619,17 @@ def test_ws_set_paused_advances_with_zero_step_count_only():
     client = TestClient(create_app(fake_session, frame_interval_seconds=0))
 
     with client.websocket_connect("/ws") as websocket:
-        websocket.receive_json()
+        _receive_frame(websocket)
         websocket.send_json({"type": "set_paused", "paused": True})
         # Drain enough frames to let the pause message actually be received and
         # applied (frame_interval_seconds=0 means the send loop can race ahead of the
         # receiver task), then check every advance() call from here on used step_count=0.
         for _ in range(20):
-            websocket.receive_json()
+            _receive_frame(websocket)
         step_counts_once_paused = len(fake_session.advance_step_counts)
 
         for _ in range(20):
-            websocket.receive_json()
+            _receive_frame(websocket)
 
     assert all(step_count == 0 for step_count in fake_session.advance_step_counts[step_counts_once_paused:])
 
@@ -579,7 +640,7 @@ def test_ws_set_words_per_minute_control_message_is_accepted_without_error():
 
     with client.websocket_connect("/ws") as websocket:
         websocket.send_json({"type": "set_words_per_minute", "value": 600.0})
-        first_message = websocket.receive_json()
+        first_message = _receive_frame(websocket)
 
     assert first_message["current_word"] == "word1"
 
@@ -590,7 +651,7 @@ def test_ws_autoplay_mode_off_never_restarts_when_book_finishes():
 
     with client.websocket_connect("/ws") as websocket:
         for _ in range(40):
-            websocket.receive_json()
+            _receive_frame(websocket)
 
     assert fake_session.restart_call_count == 0
 

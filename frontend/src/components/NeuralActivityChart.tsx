@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { TickData } from "../types";
 import { formatPercent } from "../utils/format";
+import { normalizeRegionActivity } from "../regionActivity";
 import { Sparkline } from "./Sparkline";
 import "./NeuralActivityChart.css";
 
@@ -18,12 +19,14 @@ function overallFiringRate(tick: TickData): number {
 
 /** Live-updating status card: the fly's current dopamine rating, overall firing rate and
  * arousal, each with its own rolling sparkline over the last HISTORY_LENGTH ticks (~4s
- * at the default tick rate). Dopamine and arousal plot against their real fixed 0-10 /
- * 0-100% domain (they're already calibrated to it, see emotion_decoder.py), while firing
- * rate auto-scales to its own observed peak since it isn't ceiling-normalized. While
- * isPaused, the backend keeps resending the same frozen tick - history stops accepting
- * new points so the sparklines hold their last real trend instead of flattening out into
- * a repeated-value line. */
+ * at the default tick rate), plus the achieved reading speed and overall spike rate.
+ * Dopamine plots against its real fixed 0-10 domain (already calibrated to it, see
+ * emotion_decoder.py); arousal is rescaled against its own measured ceiling (see
+ * regionActivity.ts - the raw region_activity rate barely moves off 0 otherwise), while
+ * firing rate auto-scales to its own observed peak since it isn't ceiling-normalized.
+ * While isPaused, the backend keeps resending the same frozen tick - history stops
+ * accepting new points so the sparklines hold their last real trend instead of
+ * flattening out into a repeated-value line. */
 export function NeuralActivityChart({ tick, isPaused }: { tick: TickData; isPaused: boolean }) {
   const [firingRateHistory, setFiringRateHistory] = useState<number[]>([]);
   const [ratingHistory, setRatingHistory] = useState<number[]>([]);
@@ -37,11 +40,11 @@ export function NeuralActivityChart({ tick, isPaused }: { tick: TickData; isPaus
     };
     setFiringRateHistory((previousHistory) => pushCapped(previousHistory, overallFiringRate(tick)));
     setRatingHistory((previousHistory) => pushCapped(previousHistory, tick.rating0To10));
-    setArousalHistory((previousHistory) => pushCapped(previousHistory, tick.regionActivity.arousal ?? 0));
+    setArousalHistory((previousHistory) => pushCapped(previousHistory, normalizeRegionActivity(tick.regionActivity.arousal ?? 0, "arousal")));
   }, [tick, isPaused]);
 
   const currentFiringRate = firingRateHistory[firingRateHistory.length - 1] ?? 0;
-  const arousal = tick.regionActivity.arousal ?? 0;
+  const arousal = normalizeRegionActivity(tick.regionActivity.arousal ?? 0, "arousal");
   const trackedRegionCount = Object.keys(tick.neuropilActivity).length;
 
   return (
@@ -74,6 +77,20 @@ export function NeuralActivityChart({ tick, isPaused }: { tick: TickData; isPaus
             {formatPercent(arousal)}
           </span>
           <span className="neural-activity-stat-caption">Arousal-Pool</span>
+        </div>
+        <div className="neural-activity-stat">
+          <span className="neural-activity-stat-label">Lesetempo</span>
+          <span className="neural-activity-stat-value neural-activity-stat-value--wpm">
+            {Math.round(tick.achievedWordsPerMinute)}
+          </span>
+          <span className="neural-activity-stat-caption">erreichte WPM</span>
+        </div>
+        <div className="neural-activity-stat">
+          <span className="neural-activity-stat-label">Spikes</span>
+          <span className="neural-activity-stat-value neural-activity-stat-value--spikes">
+            {tick.spikesPerSecond >= 1000 ? `${(tick.spikesPerSecond / 1000).toFixed(1)}k` : Math.round(tick.spikesPerSecond)}
+          </span>
+          <span className="neural-activity-stat-caption">Spikes/s, ganzes Hirn</span>
         </div>
       </div>
 

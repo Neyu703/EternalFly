@@ -34,6 +34,7 @@
 
 .live-log-line {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   gap: 6px;
   font-size: 11px;
@@ -56,4 +57,11 @@
 .live-log-activity {
   color: #8b98a5;
   flex-shrink: 0;
+}
+
+.live-log-behaviors {
+  color: #ffd166;
+  font-weight: 600;
+  white-space: normal;
+  flex-basis: 100%;
 }

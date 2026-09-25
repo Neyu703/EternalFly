@@ -87,6 +87,11 @@
   color: #ef476f;
 }
 
+.neural-activity-stat-value--wpm,
+.neural-activity-stat-value--spikes {
+  color: #c3e86b;
+}
+
 .neural-activity-stat-unit {
   font-size: 11px;
   font-weight: 500;

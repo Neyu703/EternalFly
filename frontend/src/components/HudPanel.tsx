@@ -48,6 +48,17 @@ export function HudPanel({
         ))}
       </div>
 
+      <div className="hud-section hud-senses-section">
+        <span className="hud-label">Sinne (aktuelles Wort)</span>
+        <div className="hud-senses">
+          {Object.entries(tick.senses)
+            .sort(([nameA], [nameB]) => nameA.localeCompare(nameB))
+            .map(([senseName, value]) => (
+              <SenseBar key={senseName} name={senseName} value={value} />
+            ))}
+        </div>
+      </div>
+
       {tick.wantsNewBook && (
         <div className="hud-bored-banner">
           Boah, langweilig — anderes Buch?
@@ -71,6 +82,20 @@ function EmotionBar({ name, value }: { name: string; value: number }) {
           className="hud-emotion-fill"
           style={{ width: `${clampedValue * 100}%`, background: EMOTION_COLORS[name] }}
         />
+      </div>
+    </div>
+  );
+}
+
+/** One real sensory channel's current drive level (already 0..1 - see
+ * reading_session.py's FrameResult.senses), e.g. sweet/bitter/looming/heat/cold. */
+function SenseBar({ name, value }: { name: string; value: number }) {
+  const clampedValue = Math.max(0, Math.min(1, value));
+  return (
+    <div className="hud-sense-row">
+      <span className="hud-sense-label">{name}</span>
+      <div className="hud-sense-track">
+        <div className="hud-sense-fill" style={{ width: `${clampedValue * 100}%` }} />
       </div>
     </div>
   );

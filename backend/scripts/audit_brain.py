@@ -25,6 +25,15 @@ POSITIVE_TEXT_WORD = "wunderbar"  # clearly positive context anchor match
 NEGATIVE_TEXT_WORD = "schrecklich"  # clearly negative context anchor match
 SWEET_TRIGGER_WORD = "Honig"
 HEAT_TRIGGER_WORD = "brennt"
+# LC4/LPLC2 (the "looming" channel) is the real visual pathway into the Giant Fiber
+# escape circuit (von Reyn et al. 2014; de Vries & Clandinin 2012) - a stronger,
+# biologically direct escape trigger than heat, and the best available real stimulus
+# for backing (MDN) / turn_left / turn_right (DNa02) too, since none of them have a
+# dedicated semantic channel of their own (steering/backing are recruited by the same
+# threat-response circuitry, not driven by a distinct sense).
+LOOMING_TRIGGER_WORD = "bedrohung"  # verified against the real model: "Monster" itself only weakly
+# matches the looming anchor centroid (drive ~0.08) despite being one of the anchor words itself -
+# "bedrohung" drives it ~0.58, a real, far stronger trigger
 NEUTRAL_WORD = "Tisch"
 
 
@@ -64,12 +73,24 @@ def main() -> None:
     print(f"\nstimulating sweet ({SWEET_TRIGGER_WORD!r} x{WORD_REPEAT_COUNT})...")
     sweet_results = _run_repeated_word(session, SWEET_TRIGGER_WORD, WORD_REPEAT_COUNT)
     print(f"  trailing sense sweet: {_trailing_mean([r.senses['sweet'] for r in sweet_results]):.3f}")
-    print(f"  trailing feeding behavior: {_trailing_mean([r.behaviors['feeding'] for r in sweet_results]):.5f}")
+    feeding_rate = _trailing_mean([r.behaviors["feeding"] for r in sweet_results])
+    print(f"  trailing feeding behavior: {feeding_rate:.5f}")
 
     print(f"\nstimulating heat ({HEAT_TRIGGER_WORD!r} x{WORD_REPEAT_COUNT})...")
     heat_results = _run_repeated_word(session, HEAT_TRIGGER_WORD, WORD_REPEAT_COUNT)
     print(f"  trailing sense heat: {_trailing_mean([r.senses['heat'] for r in heat_results]):.3f}")
-    print(f"  trailing escape behavior: {_trailing_mean([r.behaviors['escape'] for r in heat_results]):.5f}")
+
+    print(f"\nstimulating looming threat ({LOOMING_TRIGGER_WORD!r} x{WORD_REPEAT_COUNT})...")
+    looming_results = _run_repeated_word(session, LOOMING_TRIGGER_WORD, WORD_REPEAT_COUNT)
+    print(f"  trailing sense looming: {_trailing_mean([r.senses['looming'] for r in looming_results]):.3f}")
+    escape_rate = _trailing_mean([r.behaviors["escape"] for r in looming_results])
+    backing_rate = _trailing_mean([r.behaviors["backing"] for r in looming_results])
+    turn_left_rate = _trailing_mean([r.behaviors["turn_left"] for r in looming_results])
+    turn_right_rate = _trailing_mean([r.behaviors["turn_right"] for r in looming_results])
+    print(f"  trailing escape behavior: {escape_rate:.5f}")
+    print(f"  trailing backing behavior: {backing_rate:.5f}")
+    print(f"  trailing turn_left behavior: {turn_left_rate:.5f}")
+    print(f"  trailing turn_right behavior: {turn_right_rate:.5f}")
 
     print(f"\nneutral baseline ({NEUTRAL_WORD!r} x{WORD_REPEAT_COUNT})...")
     neutral_results = _run_repeated_word(session, NEUTRAL_WORD, WORD_REPEAT_COUNT)
@@ -84,6 +105,11 @@ def main() -> None:
     print(f"POSITIVE_VALENCE_CEILING ~= {reward_rate:.4f}")
     print(f"NEGATIVE_VALENCE_CEILING ~= {punishment_rate:.4f}")
     print(f"AROUSAL_CEILING ~= {max(arousal_stim_rate, arousal_rate):.4f}")
+    print(f"BEHAVIOR_CEILINGS['escape'] ~= {escape_rate:.5f}")
+    print(f"BEHAVIOR_CEILINGS['feeding'] ~= {feeding_rate:.5f}")
+    print(f"BEHAVIOR_CEILINGS['backing'] ~= {backing_rate:.5f}")
+    print(f"BEHAVIOR_CEILINGS['turn_left'] ~= {turn_left_rate:.5f}")
+    print(f"BEHAVIOR_CEILINGS['turn_right'] ~= {turn_right_rate:.5f}")
 
 
 if __name__ == "__main__":

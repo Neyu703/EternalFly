@@ -7,6 +7,8 @@ import random
 import time
 from dataclasses import asdict
 
+import numpy
+import torch
 from fastapi import FastAPI, HTTPException, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -24,6 +26,16 @@ DEFAULT_LOAD_BOOK_TIMEOUT_SECONDS = 30.0
 DEFAULT_WORDS_PER_MINUTE = 150.0
 DEFAULT_LOOKAHEAD_WORD_COUNT = 50
 DEFAULT_LOOKAHEAD_INTERVAL_SECONDS = 1.0
+DEFAULT_SPIKE_CLOUD_MAX_NEURON_COUNT = 20_000
+
+
+def encode_fired_neuron_indices(fired_neuron_indices: torch.Tensor) -> bytes:
+    """Encode this frame's fired-neuron indices (see
+    ReadingSession.last_frame_fired_neuron_indices) as raw little-endian uint32 bytes -
+    the frontend's spike-cloud visualization reads this directly into a
+    Uint32Array (see useWebSocketTickData.ts), far cheaper to parse per-frame than JSON
+    would be for what can be thousands of indices."""
+    return numpy.asarray(fired_neuron_indices.cpu(), dtype="<u4").tobytes()
 
 
 def frame_result_to_json(frame_result, achieved_words_per_minute: float) -> dict:
@@ -122,6 +134,7 @@ def create_app(
     load_book_timeout_seconds: float = DEFAULT_LOAD_BOOK_TIMEOUT_SECONDS,
     lookahead_word_count: int = DEFAULT_LOOKAHEAD_WORD_COUNT,
     lookahead_interval_seconds: float = DEFAULT_LOOKAHEAD_INTERVAL_SECONDS,
+    spike_cloud_max_neuron_count: int = DEFAULT_SPIKE_CLOUD_MAX_NEURON_COUNT,
 ) -> FastAPI:
     """Build a FastAPI app that streams `session.advance()` results over `/ws` as
     JSON, roughly every frame_interval_seconds of real time, until the client
@@ -201,6 +214,8 @@ def create_app(
                 words_before = result.words_read
 
                 await websocket.send_json(frame_result_to_json(result, achieved_words_per_minute))
+                fired_neuron_indices = session.last_frame_fired_neuron_indices(spike_cloud_max_neuron_count)
+                await websocket.send_bytes(encode_fired_neuron_indices(fired_neuron_indices))
                 elapsed_this_iteration = time.monotonic() - frame_start
                 await asyncio.sleep(max(0.0, frame_interval_seconds - elapsed_this_iteration))
         except WebSocketDisconnect:

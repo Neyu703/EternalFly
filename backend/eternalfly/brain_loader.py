@@ -77,6 +77,16 @@ POSITIVE_VALENCE_CEILING = 0.022
 NEGATIVE_VALENCE_CEILING = 0.070
 AROUSAL_CEILING = 0.020
 
+# Raw achieved behavior_<name> pool rates under strong real stimulation, measured by
+# scripts/audit_brain.py against the real cached connectome: escape/turn_left/
+# turn_right under a "bedrohung" (threat) looming stimulus (LC4/LPLC2 -> Giant Fiber ->
+# steering, von Reyn et al. 2014), feeding under "Honig" (sweet). backing (MDN, only 4
+# neurons in this connectome) never rose above its baseline rate under any single-word
+# stimulus tried (looming, wind, sound) - honest gap, not yet a real trigger word found
+# for it - so it reuses the escape ceiling as a non-degenerate placeholder rather than
+# a literal 0.0, which would permanently zero out its normalized readout.
+BEHAVIOR_CEILINGS = {"escape": 0.047, "feeding": 0.018, "backing": 0.047, "turn_left": 0.031, "turn_right": 0.017}
+
 
 def channel_config_for(name: str) -> SensoryChannelConfig:
     """The Poisson-injection tuning for one named sensory channel (see
@@ -164,6 +174,7 @@ def build_session_config(embedding_dim: int, device: str = "cpu") -> ReadingSess
         positive_valence_ceiling=POSITIVE_VALENCE_CEILING,
         negative_valence_ceiling=NEGATIVE_VALENCE_CEILING,
         arousal_ceiling=AROUSAL_CEILING,
+        behavior_ceilings=BEHAVIOR_CEILINGS,
         device=device,
     )
 

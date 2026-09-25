@@ -2,14 +2,18 @@ import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { useGLTF } from "@react-three/drei";
 import * as THREE from "three";
+import { SpikeCloud } from "./SpikeCloud";
+import type { RefObject } from "react";
+import type { FiredNeuronIndices } from "../hooks/useWebSocketTickData";
 
 /** Live activity per neuropil region, keyed the same as the region mesh node names (0..1 firing rate). */
 export type NeuropilActivity = Record<string, number>;
 
 // Real per-region spike rates from the simulation are small fractions of their nominal
 // 0..1 range even for a genuinely very active region (measured against the real cached
-// connectome, see backend/scripts/calibrate_sentiment.py) - this is the raw rate that
-// counts as "fully active" for glow purposes; values beyond it just clamp at 1.0.
+// connectome, same repeated-word stimulation approach as scripts/audit_brain.py) - this
+// is the raw rate that counts as "fully active" for glow purposes; values beyond it
+// just clamp at 1.0.
 const NEUROPIL_ACTIVITY_CEILING = 0.08;
 
 const IDLE_SATURATION = 0.5; // how muted a quiet region's color is, as a fraction of its true baked saturation
@@ -40,9 +44,17 @@ type RegionAppearance = {
  * color (baked in server-side, see backend/scripts/extract_brain_geometry.py) is read directly
  * off its mesh; regions stay muted at rest and pop to their full saturated color, higher
  * opacity and brighter wireframe as they fire. Without live `activity`, regions gently pulse
- * on their own so the page still reads as "alive".
+ * on their own so the page still reads as "alive". Also renders SpikeCloud, a per-
+ * neuron point cloud in the same coordinate frame, so individual firing neurons are
+ * visible alongside the coarser per-region glow.
  */
-export function BrainGlow({ activity }: { activity?: NeuropilActivity }) {
+export function BrainGlow({
+  activity,
+  firedNeuronIndicesRef,
+}: {
+  activity?: NeuropilActivity;
+  firedNeuronIndicesRef?: RefObject<FiredNeuronIndices>;
+}) {
   const { scene: brainScene } = useGLTF("/models/brain-outline.glb");
   const { scene: regionsScene } = useGLTF("/models/neuropil-regions.glb");
   const regionAppearances = useRef<Record<string, RegionAppearance>>({});
@@ -110,6 +122,7 @@ export function BrainGlow({ activity }: { activity?: NeuropilActivity }) {
     <group position={[-brainCenter.x, -brainCenter.y, -brainCenter.z]}>
       <primitive object={brainScene} />
       <primitive object={regionsScene} />
+      {firedNeuronIndicesRef && <SpikeCloud firedNeuronIndicesRef={firedNeuronIndicesRef} />}
     </group>
   );
 }

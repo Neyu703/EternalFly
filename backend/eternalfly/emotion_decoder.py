@@ -52,6 +52,18 @@ class ExponentialMovingAverage:
         return self._value
 
 
+def normalize_rate(raw_rate: float, ceiling: float) -> float:
+    """Rescale a raw pool firing rate to [0.0, 1.0] against a measured ceiling (the raw
+    rate that should map to 1.0 - see scripts/audit_brain.py), clamping values beyond
+    it rather than exceeding 1.0. Same "raw rates barely move off 0" problem
+    pool_rates_to_valence_arousal's docstring describes applies to every other named
+    readout pool (e.g. reading_session.py's behavior_<name> descending-neuron pools),
+    so this is the shared building block for those too."""
+    if ceiling <= 0:
+        return 0.0
+    return max(0.0, min(1.0, raw_rate / ceiling))
+
+
 def pool_rates_to_valence_arousal(
     approach_pool_rate: float,
     avoidance_pool_rate: float,
