@@ -14,12 +14,20 @@ from eternalfly.text_encoder import (
 )
 
 
-def test_tokenize_text_splits_and_lowercases_whitespace_separated_words():
-    assert tokenize_text("Hello World") == ["hello", "world"]
+def test_tokenize_text_splits_on_whitespace_and_preserves_case():
+    # Case is preserved (not lowercased like the old VADER-based tokenizer) - the
+    # multilingual embedding model is cased, so e.g. German "Wein" vs "wein" differ.
+    assert tokenize_text("Hello World") == ["Hello", "World"]
 
 
 def test_tokenize_text_strips_leading_and_trailing_punctuation():
-    assert tokenize_text('"Hello," she said--well.') == ["hello", "she", "said--well"]
+    assert tokenize_text('"Hello," she said--well.') == ["Hello", "she", "said--well"]
+
+
+def test_tokenize_text_strips_german_unicode_quotation_marks():
+    # „ (Ps), “ (Pi) - neither is in ASCII string.punctuation, so the old
+    # implementation would have left these attached to the token.
+    assert tokenize_text("„Hallo“ sagte sie.") == ["Hallo", "sagte", "sie"]
 
 
 def test_tokenize_text_drops_tokens_that_become_empty_after_stripping():
@@ -204,14 +212,14 @@ def test_load_and_tokenize_file_tokenizes_a_txt_file(tmp_path):
     text_path = tmp_path / "story.txt"
     text_path.write_text("The dragon flew.", encoding="utf-8")
 
-    assert load_and_tokenize_file(text_path) == ["the", "dragon", "flew"]
+    assert load_and_tokenize_file(text_path) == ["The", "dragon", "flew"]
 
 
 def test_load_and_tokenize_file_dispatches_on_uppercase_txt_suffix(tmp_path):
     text_path = tmp_path / "story.TXT"
     text_path.write_text("Sunlit meadows", encoding="utf-8")
 
-    assert load_and_tokenize_file(text_path) == ["sunlit", "meadows"]
+    assert load_and_tokenize_file(text_path) == ["Sunlit", "meadows"]
 
 
 def test_load_and_tokenize_file_tokenizes_an_epub_file(tmp_path):

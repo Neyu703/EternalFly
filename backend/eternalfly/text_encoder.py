@@ -2,7 +2,7 @@
 
 import hashlib
 import pathlib
-import string
+import unicodedata
 
 import ebooklib
 import ebooklib.epub
@@ -16,12 +16,28 @@ from eternalfly.sentiment_lexicon import word_valence
 NOISE_HALF_WIDTH = 0.15
 
 
+def _strip_unicode_punctuation(token: str) -> str:
+    """Strip leading/trailing characters whose Unicode general category starts with
+    "P" (covers every punctuation form, not just ASCII: German „ " quotes, English
+    "curly" quotes, em/en dashes, ...), leaving internal punctuation untouched."""
+    start = 0
+    end = len(token)
+    while start < end and unicodedata.category(token[start]).startswith("P"):
+        start += 1
+    while end > start and unicodedata.category(token[end - 1]).startswith("P"):
+        end -= 1
+    return token[start:end]
+
+
 def tokenize_text(raw_text: str) -> list[str]:
-    """Lowercase raw_text, split on whitespace, strip surrounding punctuation from each
-    token, and drop tokens that become empty after stripping."""
-    lowercased_text = raw_text.lower()
-    candidate_tokens = lowercased_text.split()
-    stripped_tokens = [token.strip(string.punctuation) for token in candidate_tokens]
+    """Split raw_text on whitespace and strip leading/trailing Unicode punctuation
+    (see _strip_unicode_punctuation) from each token, dropping tokens that become
+    empty after stripping. Case is preserved: the multilingual sentence-embedding
+    model (semantic_encoder.py) is cased, so e.g. German "Wein" (wine, a noun) and
+    lowercase "wein" (to cry) are meaningfully different inputs to it - unlike the old
+    English-only VADER lookup, which was itself always case-insensitive."""
+    candidate_tokens = raw_text.split()
+    stripped_tokens = [_strip_unicode_punctuation(token) for token in candidate_tokens]
     return [token for token in stripped_tokens if token != ""]
 
 

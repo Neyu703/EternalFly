@@ -194,7 +194,7 @@ def test_load_book_endpoint_returns_ok_and_total_words_for_valid_txt_file(tmp_pa
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok", "total_words": 3}
-    assert fake_session.received_tokens == ["the", "dragon", "flew"]
+    assert fake_session.received_tokens == ["The", "dragon", "flew"]
 
 
 def test_load_book_endpoint_returns_ok_for_valid_epub_file(tmp_path):
@@ -217,7 +217,7 @@ def test_load_book_endpoint_returns_ok_for_valid_epub_file(tmp_path):
     response = client.post("/load-book", json={"path": str(epub_path)})
 
     assert response.status_code == 200
-    assert "sunlit" in fake_session.received_tokens
+    assert "Sunlit" in fake_session.received_tokens
     assert "meadows" in fake_session.received_tokens
     assert response.json() == {"status": "ok", "total_words": len(fake_session.received_tokens)}
 
@@ -557,7 +557,7 @@ def test_ws_autoplay_mode_shuffle_loads_a_calibre_book_when_book_finishes(tmp_pa
         websocket.send_json({"type": "set_autoplay_mode", "mode": "shuffle"})
         _drain_websocket_until(websocket, lambda: fake_session.received_tokens is not None)
 
-    assert fake_session.received_tokens == ["fear", "is", "the", "mind", "killer"]
+    assert fake_session.received_tokens == ["Fear", "is", "the", "mind", "killer"]
 
 
 def test_ws_autoplay_mode_shuffle_falls_back_to_restart_when_no_library_configured():
