@@ -15,6 +15,26 @@ def test_neurotransmitter_sign_glut_is_inhibitory():
     assert neurotransmitter_sign("glut") == -1
 
 
+def test_neurotransmitter_sign_full_word_glutamate_is_inhibitory():
+    assert neurotransmitter_sign("glutamate") == -1
+
+
+def test_neurotransmitter_sign_full_word_acetylcholine_is_excitatory():
+    assert neurotransmitter_sign("acetylcholine") == 1
+
+
+def test_neurotransmitter_sign_full_word_dopamine_is_excitatory():
+    assert neurotransmitter_sign("dopamine") == 1
+
+
+def test_neurotransmitter_sign_full_word_octopamine_is_excitatory():
+    assert neurotransmitter_sign("octopamine") == 1
+
+
+def test_neurotransmitter_sign_full_word_serotonin_is_excitatory():
+    assert neurotransmitter_sign("serotonin") == 1
+
+
 def test_neurotransmitter_sign_da_is_excitatory():
     assert neurotransmitter_sign("da") == 1
 

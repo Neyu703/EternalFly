@@ -5,15 +5,41 @@ import pathlib
 import numpy
 import pyarrow
 import pyarrow.compute
+import pyarrow.csv
 import pyarrow.feather
 
 NEUROTRANSMITTER_COLUMN_ORDER = ["ach", "gaba", "glut", "da", "oct", "ser"]
 NEUROTRANSMITTER_PROBABILITY_COLUMNS = ["gaba_avg", "ach_avg", "glut_avg", "oct_avg", "ser_avg", "da_avg"]
 
+# The columns cell_groups.py's selectors and geometry.neuron_scene_positions actually
+# read from the real FlyWire cell-type annotations
+# (Supplemental_file1_neuron_annotations.tsv) - the file has 31 columns in total, most
+# of it per-neuron metadata (soma position, hemilineage, VirtualFlyBrain ids, ...)
+# irrelevant here.
+ANNOTATION_COLUMNS = [
+    "root_id", "super_class", "cell_class", "cell_sub_class", "cell_type", "side", "top_nt", "pos_x", "pos_y", "pos_z",
+]
+
 
 def load_root_ids(path: pathlib.Path) -> numpy.ndarray:
     """Load the proofread neuron root id array from a .npy file at path."""
     return numpy.load(path)
+
+
+def load_neuron_annotations(path: pathlib.Path) -> pyarrow.Table:
+    """Load ANNOTATION_COLUMNS from the real FlyWire cell-type annotations TSV (tab-
+    delimited, see scripts/download_connectome.py). root_id is parsed as int64 - FlyWire
+    ids exceed 2**53, so this must never go through float64 (see filter_ids_to_known_set's
+    note on the same numpy.isin pitfall). Every other column stays a plain string,
+    including where a row has no annotation for it (kept as "", never null, so
+    cell_groups.py's selectors can compare it directly against a fixed set of values)."""
+    parse_options = pyarrow.csv.ParseOptions(delimiter="\t")
+    convert_options = pyarrow.csv.ConvertOptions(
+        column_types={"root_id": pyarrow.int64()},
+        include_columns=ANNOTATION_COLUMNS,
+        null_values=[],  # an empty cell is a real "no annotation" value here, not null
+    )
+    return pyarrow.csv.read_csv(path, parse_options=parse_options, convert_options=convert_options)
 
 
 def load_feather_table(path: pathlib.Path) -> pyarrow.Table:
@@ -125,3 +151,23 @@ def filter_ids_to_known_set(
 def build_neuron_index(root_ids: numpy.ndarray) -> dict[int, int]:
     """Map each neuron root id to its position within root_ids, as plain Python ints."""
     return {int(neuron_id): position for position, neuron_id in enumerate(root_ids)}
+
+
+def filter_edges_to_known_neurons(
+    pre_ids: numpy.ndarray, post_ids: numpy.ndarray, syn_counts: numpy.ndarray, known_ids: numpy.ndarray
+) -> tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray]:
+    """Keep only the (pre_id, post_id, syn_count) edges where BOTH endpoints are in
+    known_ids (the proofread/simulated neuron set).
+
+    The real connections file includes synapses onto postsynaptic segments that are
+    not themselves part of the strictly proofread root id set (e.g. still-unproofread
+    partners of an otherwise proofread neuron) - build_signed_adjacency has no index
+    for those, so they must be dropped here rather than raising. Same int64-cast
+    reasoning as filter_ids_to_known_set (FlyWire ids exceed 2**53, so numpy.isin must
+    never fall back to a float64 comparison).
+    """
+    pre_ids_int64 = pre_ids.astype(numpy.int64)
+    post_ids_int64 = post_ids.astype(numpy.int64)
+    known_ids_int64 = known_ids.astype(numpy.int64)
+    is_known = numpy.isin(pre_ids_int64, known_ids_int64) & numpy.isin(post_ids_int64, known_ids_int64)
+    return pre_ids_int64[is_known], post_ids_int64[is_known], syn_counts[is_known]

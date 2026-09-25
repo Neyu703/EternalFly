@@ -9,8 +9,10 @@ from eternalfly.data_prep import (
     aggregate_neurotransmitter_by_neuron,
     build_neuron_index,
     dominant_neurotransmitter_labels,
+    filter_edges_to_known_neurons,
     filter_ids_to_known_set,
     load_feather_table,
+    load_neuron_annotations,
     load_root_ids,
 )
 
@@ -36,6 +38,29 @@ def test_load_feather_table_round_trips_synthetic_table(tmp_path):
     loaded_table = load_feather_table(feather_path)
 
     assert loaded_table.to_pydict() == original_table.to_pydict()
+
+
+def test_load_neuron_annotations_parses_root_id_as_int_and_keeps_empty_strings_not_null(tmp_path):
+    tsv_path = tmp_path / "annotations.tsv"
+    tsv_path.write_text(
+        "root_id\tsuper_class\tcell_class\tcell_sub_class\tcell_type\tside\ttop_nt\tpos_x\tpos_y\tpos_z\tsoma_x\n"
+        # root_id exceeds 2**53 (real FlyWire ids do) - proves int64, not a float64 that
+        # would silently lose precision; cell_class/cell_sub_class are blank for this row.
+        "720575940628857210\tcentral\t\t\tPS180\tleft\tacetylcholine\t109306.0\t50491.0\t3960.0\t104904\n"
+        "720575940626838909\tdescending\t\t\tMDN\tright\tacetylcholine\t172029.0\t55635.0\t1592.0\t98368\n",
+        encoding="utf-8",
+    )
+
+    annotations = load_neuron_annotations(tsv_path)
+
+    assert annotations.column_names == [
+        "root_id", "super_class", "cell_class", "cell_sub_class", "cell_type", "side", "top_nt", "pos_x", "pos_y", "pos_z",
+    ]
+    assert annotations["root_id"].to_pylist() == [720575940628857210, 720575940626838909]
+    assert annotations["cell_class"].to_pylist() == ["", ""]
+    assert annotations["cell_type"].to_pylist() == ["PS180", "MDN"]
+    assert annotations["side"].to_pylist() == ["left", "right"]
+    assert annotations["pos_x"].to_pylist() == [109306.0, 172029.0]
 
 
 def _make_connections_table(rows):
@@ -266,3 +291,29 @@ def test_build_neuron_index_maps_ids_to_positions_as_plain_ints():
 
     assert neuron_id_to_index == {700: 0, 800: 1, 900: 2}
     assert all(type(neuron_id) is int for neuron_id in neuron_id_to_index)
+
+
+def test_filter_edges_to_known_neurons_keeps_only_edges_with_both_endpoints_known():
+    pre_ids = numpy.array([100, 100, 999])
+    post_ids = numpy.array([200, 999, 200])  # edge 0 ok, edge 1 has unknown post, edge 2 has unknown pre
+    syn_counts = numpy.array([5, 3, 7])
+    known_ids = numpy.array([100, 200])
+
+    filtered_pre, filtered_post, filtered_counts = filter_edges_to_known_neurons(pre_ids, post_ids, syn_counts, known_ids)
+
+    assert filtered_pre.tolist() == [100]
+    assert filtered_post.tolist() == [200]
+    assert filtered_counts.tolist() == [5]
+
+
+def test_filter_edges_to_known_neurons_preserves_precision_beyond_2_pow_53():
+    huge_known_id = 720575940628857210  # a real FlyWire-scale id, exceeds 2**53
+    pre_ids = numpy.array([huge_known_id], dtype=numpy.int64)
+    post_ids = numpy.array([huge_known_id + 1], dtype=numpy.int64)
+    syn_counts = numpy.array([1])
+    known_ids = numpy.array([huge_known_id, huge_known_id + 1], dtype=numpy.int64)
+
+    filtered_pre, filtered_post, _ = filter_edges_to_known_neurons(pre_ids, post_ids, syn_counts, known_ids)
+
+    assert filtered_pre.tolist() == [huge_known_id]
+    assert filtered_post.tolist() == [huge_known_id + 1]
