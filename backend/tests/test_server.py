@@ -10,6 +10,17 @@ from starlette.websockets import WebSocketDisconnect
 from eternalfly.reading_session import TickResult
 from eternalfly.server import create_app, tick_result_to_json
 
+# Matches one of server.ALLOWED_ORIGINS.
+ORIGIN_HEADERS = {"origin": "http://localhost:5173"}
+
+
+def make_client(app) -> TestClient:
+    """Construct a TestClient carrying ORIGIN_HEADERS, so requests through it pass
+    the Origin check guarding /ws and unsafe HTTP methods against cross-origin
+    requests."""
+    return TestClient(app, headers=ORIGIN_HEADERS)
+
+
 _ZERO_EMOTIONS = {
     "joy": 0.0,
     "trust": 0.0,
@@ -100,7 +111,7 @@ class FakeIncrementingSession:
 def test_ws_first_message_matches_json_of_first_tick():
     fake_session = FakeIncrementingSession()
     app = create_app(fake_session, tick_interval_seconds=0)
-    client = TestClient(app)
+    client = make_client(app)
 
     with client.websocket_connect("/ws") as websocket:
         first_message = websocket.receive_json()
@@ -123,7 +134,7 @@ def test_ws_first_message_matches_json_of_first_tick():
 def test_ws_second_message_reflects_second_tick_call_not_a_cached_first_result():
     fake_session = FakeIncrementingSession()
     app = create_app(fake_session, tick_interval_seconds=0)
-    client = TestClient(app)
+    client = make_client(app)
 
     with client.websocket_connect("/ws") as websocket:
         first_message = websocket.receive_json()
@@ -138,7 +149,7 @@ def test_ws_second_message_reflects_second_tick_call_not_a_cached_first_result()
 def test_ws_client_disconnect_mid_loop_does_not_raise_unhandled_exception():
     fake_session = FakeIncrementingSession()
     app = create_app(fake_session, tick_interval_seconds=0)
-    client = TestClient(app)
+    client = make_client(app)
 
     with client.websocket_connect("/ws") as websocket:
         websocket.receive_json()
@@ -148,6 +159,8 @@ def test_ws_client_disconnect_mid_loop_does_not_raise_unhandled_exception():
 class DisconnectingWebSocket:
     """Fake WebSocket whose send_json immediately raises WebSocketDisconnect, simulating
     a client that has already gone away by the time the server tries to send a tick."""
+
+    headers = ORIGIN_HEADERS
 
     async def accept(self) -> None:
         """No-op accept, mirroring the real WebSocket's accept() signature."""
@@ -188,7 +201,7 @@ def test_load_book_endpoint_returns_ok_and_total_words_for_valid_txt_file(tmp_pa
     text_path = tmp_path / "story.txt"
     text_path.write_text("The dragon flew.", encoding="utf-8")
     fake_session = FakeSessionTrackingLoadNewText()
-    client = TestClient(create_app(fake_session))
+    client = make_client(create_app(fake_session))
 
     response = client.post("/load-book", json={"path": str(text_path)})
 
@@ -212,7 +225,7 @@ def test_load_book_endpoint_returns_ok_for_valid_epub_file(tmp_path):
     book.spine = ["nav", chapter]
     ebooklib.epub.write_epub(str(epub_path), book)
     fake_session = FakeSessionTrackingLoadNewText()
-    client = TestClient(create_app(fake_session))
+    client = make_client(create_app(fake_session))
 
     response = client.post("/load-book", json={"path": str(epub_path)})
 
@@ -225,7 +238,7 @@ def test_load_book_endpoint_returns_ok_for_valid_epub_file(tmp_path):
 def test_load_book_endpoint_returns_404_for_missing_file(tmp_path):
     missing_path = tmp_path / "missing.txt"
     fake_session = FakeSessionTrackingLoadNewText()
-    client = TestClient(create_app(fake_session))
+    client = make_client(create_app(fake_session))
 
     response = client.post("/load-book", json={"path": str(missing_path)})
 
@@ -237,7 +250,7 @@ def test_load_book_endpoint_returns_400_for_unsupported_file_extension(tmp_path)
     unsupported_path = tmp_path / "story.pdf"
     unsupported_path.write_text("irrelevant", encoding="utf-8")
     fake_session = FakeSessionTrackingLoadNewText()
-    client = TestClient(create_app(fake_session))
+    client = make_client(create_app(fake_session))
 
     response = client.post("/load-book", json={"path": str(unsupported_path)})
 
@@ -249,7 +262,7 @@ def test_load_book_endpoint_returns_400_when_file_tokenizes_to_an_empty_book(tmp
     empty_text_path = tmp_path / "empty.txt"
     empty_text_path.write_text("--- ... !!!", encoding="utf-8")
     fake_session = FakeSessionTrackingLoadNewText()
-    client = TestClient(create_app(fake_session))
+    client = make_client(create_app(fake_session))
 
     response = client.post("/load-book", json={"path": str(empty_text_path)})
 
@@ -268,7 +281,7 @@ def test_load_book_endpoint_returns_504_when_parsing_exceeds_the_timeout(tmp_pat
 
     monkeypatch.setattr("eternalfly.server.load_and_tokenize_file", slow_load_and_tokenize_file)
     fake_session = FakeSessionTrackingLoadNewText()
-    client = TestClient(create_app(fake_session, load_book_timeout_seconds=0.05))
+    client = make_client(create_app(fake_session, load_book_timeout_seconds=0.05))
 
     response = client.post("/load-book", json={"path": str(slow_path)})
 
@@ -287,7 +300,7 @@ def test_load_book_endpoint_does_not_block_the_event_loop_while_parsing(tmp_path
 
     monkeypatch.setattr("eternalfly.server.load_and_tokenize_file", slow_load_and_tokenize_file)
     fake_session = FakeIncrementingSession()
-    client = TestClient(create_app(fake_session, tick_interval_seconds=0))
+    client = make_client(create_app(fake_session, tick_interval_seconds=0))
 
     with client.websocket_connect("/ws") as websocket:
         websocket.receive_json()
@@ -328,7 +341,7 @@ def _create_minimal_calibre_library(tmp_path):
 
 def test_calibre_books_endpoint_returns_empty_list_when_no_library_configured():
     fake_session = FakeSessionTrackingLoadNewText()
-    client = TestClient(create_app(fake_session))
+    client = make_client(create_app(fake_session))
 
     response = client.get("/calibre-books")
 
@@ -339,7 +352,7 @@ def test_calibre_books_endpoint_returns_empty_list_when_no_library_configured():
 def test_calibre_books_endpoint_returns_books_from_configured_library(tmp_path):
     library_path = _create_minimal_calibre_library(tmp_path)
     fake_session = FakeSessionTrackingLoadNewText()
-    client = TestClient(create_app(fake_session, calibre_library_path=library_path))
+    client = make_client(create_app(fake_session, calibre_library_path=library_path))
 
     response = client.get("/calibre-books")
 
@@ -359,7 +372,7 @@ def test_calibre_books_endpoint_returns_books_from_configured_library(tmp_path):
 def test_calibre_books_endpoint_returns_404_when_configured_library_path_has_no_metadata_db(tmp_path):
     missing_library_path = tmp_path / "no_such_library"
     fake_session = FakeSessionTrackingLoadNewText()
-    client = TestClient(create_app(fake_session, calibre_library_path=missing_library_path))
+    client = make_client(create_app(fake_session, calibre_library_path=missing_library_path))
 
     response = client.get("/calibre-books")
 
@@ -371,7 +384,7 @@ def test_books_in_folder_endpoint_returns_epub_and_txt_files_in_the_given_folder
     (tmp_path / "apple.txt").write_bytes(b"")
     (tmp_path / "cover.jpg").write_bytes(b"")
     fake_session = FakeSessionTrackingLoadNewText()
-    client = TestClient(create_app(fake_session))
+    client = make_client(create_app(fake_session))
 
     response = client.get("/books-in-folder", params={"path": str(tmp_path)})
 
@@ -387,7 +400,7 @@ def test_books_in_folder_endpoint_returns_epub_and_txt_files_in_the_given_folder
 def test_books_in_folder_endpoint_returns_404_for_a_missing_folder(tmp_path):
     missing_folder = tmp_path / "does_not_exist"
     fake_session = FakeSessionTrackingLoadNewText()
-    client = TestClient(create_app(fake_session))
+    client = make_client(create_app(fake_session))
 
     response = client.get("/books-in-folder", params={"path": str(missing_folder)})
 
@@ -465,7 +478,7 @@ def _drain_websocket_until(websocket, condition, max_messages: int = 500) -> Non
 
 def test_ws_set_paused_control_message_calls_session_set_paused():
     fake_session = FakeControllableSession()
-    client = TestClient(create_app(fake_session, tick_interval_seconds=0))
+    client = make_client(create_app(fake_session, tick_interval_seconds=0))
 
     with client.websocket_connect("/ws") as websocket:
         websocket.send_json({"type": "set_paused", "paused": True})
@@ -476,7 +489,7 @@ def test_ws_set_paused_control_message_calls_session_set_paused():
 
 def test_ws_set_speed_multiplier_control_message_calls_session_set_speed_multiplier():
     fake_session = FakeControllableSession()
-    client = TestClient(create_app(fake_session, tick_interval_seconds=0))
+    client = make_client(create_app(fake_session, tick_interval_seconds=0))
 
     with client.websocket_connect("/ws") as websocket:
         websocket.send_json({"type": "set_speed_multiplier", "value": 2.5})
@@ -487,7 +500,7 @@ def test_ws_set_speed_multiplier_control_message_calls_session_set_speed_multipl
 
 def test_ws_set_words_per_minute_control_message_converts_to_speed_multiplier():
     fake_session = FakeControllableSession()
-    client = TestClient(create_app(fake_session, tick_interval_seconds=0, base_words_per_minute=120.0))
+    client = make_client(create_app(fake_session, tick_interval_seconds=0, base_words_per_minute=120.0))
 
     with client.websocket_connect("/ws") as websocket:
         websocket.send_json({"type": "set_words_per_minute", "value": 600.0})
@@ -498,7 +511,7 @@ def test_ws_set_words_per_minute_control_message_converts_to_speed_multiplier():
 
 def test_ws_autoplay_mode_off_never_restarts_when_book_finishes():
     fake_session = FakeControllableSession(finished_on_tick=20)
-    client = TestClient(create_app(fake_session, tick_interval_seconds=0))
+    client = make_client(create_app(fake_session, tick_interval_seconds=0))
 
     with client.websocket_connect("/ws") as websocket:
         for _ in range(40):
@@ -513,7 +526,7 @@ def test_ws_autoplay_mode_restart_restarts_session_exactly_once_when_book_finish
     # disarms further finishing, so however far the send loop races ahead while the
     # test isn't looking, restart_call_count can never exceed 1.
     fake_session = FakeControllableSession(finished_on_tick=20)
-    client = TestClient(create_app(fake_session, tick_interval_seconds=0))
+    client = make_client(create_app(fake_session, tick_interval_seconds=0))
 
     with client.websocket_connect("/ws") as websocket:
         websocket.send_json({"type": "set_autoplay_mode", "mode": "restart"})
@@ -551,7 +564,7 @@ def _create_minimal_calibre_library_with_real_txt_book(tmp_path):
 def test_ws_autoplay_mode_shuffle_loads_a_calibre_book_when_book_finishes(tmp_path):
     library_path = _create_minimal_calibre_library_with_real_txt_book(tmp_path)
     fake_session = FakeControllableSession(finished_on_tick=20)
-    client = TestClient(create_app(fake_session, tick_interval_seconds=0, calibre_library_path=library_path))
+    client = make_client(create_app(fake_session, tick_interval_seconds=0, calibre_library_path=library_path))
 
     with client.websocket_connect("/ws") as websocket:
         websocket.send_json({"type": "set_autoplay_mode", "mode": "shuffle"})
@@ -562,7 +575,7 @@ def test_ws_autoplay_mode_shuffle_loads_a_calibre_book_when_book_finishes(tmp_pa
 
 def test_ws_autoplay_mode_shuffle_falls_back_to_restart_when_no_library_configured():
     fake_session = FakeControllableSession(finished_on_tick=20)
-    client = TestClient(create_app(fake_session, tick_interval_seconds=0))
+    client = make_client(create_app(fake_session, tick_interval_seconds=0))
 
     with client.websocket_connect("/ws") as websocket:
         websocket.send_json({"type": "set_autoplay_mode", "mode": "shuffle"})

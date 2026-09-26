@@ -7,7 +7,10 @@ from dataclasses import asdict
 
 from fastapi import FastAPI, HTTPException, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from starlette.datastructures import Headers
+from starlette.types import ASGIApp, Receive, Scope, Send
 from starlette.websockets import WebSocketDisconnect
 
 from eternalfly.calibre_library import list_books
@@ -17,6 +20,43 @@ from eternalfly.text_encoder import load_and_tokenize_file
 AUTOPLAY_MODE_OFF = "off"
 AUTOPLAY_MODE_RESTART = "restart"
 AUTOPLAY_MODE_SHUFFLE = "shuffle"
+
+ALLOWED_ORIGINS = ["http://localhost:5173", "tauri://localhost", "http://tauri.localhost"]
+UNSAFE_HTTP_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+def _origin_is_allowed(origin: str | None) -> bool:
+    """Whether origin exactly matches one of ALLOWED_ORIGINS."""
+    return origin in ALLOWED_ORIGINS
+
+
+class OriginCheckMiddleware:
+    """Pure ASGI middleware rejecting cross-origin traffic that CORSMiddleware can't
+    stop on its own: WebSocket handshakes (CORSMiddleware only wraps HTTP-scope
+    traffic, never "websocket" scope) and unsafe HTTP methods (a cross-origin POST
+    using a CORS-"simple" Content-Type such as text/plain skips the preflight
+    CORSMiddleware would otherwise enforce). Runs once per connection, ahead of
+    routing, so no individual route needs its own origin check."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] not in ("http", "websocket"):
+            await self.app(scope, receive, send)
+            return
+
+        origin = Headers(scope=scope).get("origin")
+        if scope["type"] == "websocket":
+            if not _origin_is_allowed(origin):
+                await send({"type": "websocket.close", "code": 1008})
+                return
+        elif scope["method"] in UNSAFE_HTTP_METHODS and not _origin_is_allowed(origin):
+            await JSONResponse({"detail": "Origin not allowed"}, status_code=403)(scope, receive, send)
+            return
+
+        await self.app(scope, receive, send)
+
 
 DEFAULT_LOAD_BOOK_TIMEOUT_SECONDS = 30.0
 
@@ -87,9 +127,10 @@ def create_app(
     60 / (ticks_per_word * tick_interval_seconds)), used to convert an absolute
     set_words_per_minute control message into the multiplier the session expects."""
     app = FastAPI()
+    app.add_middleware(OriginCheckMiddleware)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:5173", "tauri://localhost", "http://tauri.localhost"],
+        allow_origins=ALLOWED_ORIGINS,
         allow_methods=["GET", "POST"],
         allow_headers=["Content-Type"],
     )
