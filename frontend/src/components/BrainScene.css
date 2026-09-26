@@ -1,0 +1,123 @@
+.brain-scene {
+    position: relative;
+    width: 100%;
+    height: 100%;
+}
+
+.region-tooltip {
+    position: absolute;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    max-width: 240px;
+    padding: 6px var(--space-2);
+    background: rgb(20 27 35 / 0.92);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-overlay);
+    pointer-events: none;
+    backdrop-filter: blur(4px);
+}
+
+.region-tooltip-name {
+    font-size: var(--font-size-md);
+    font-weight: 600;
+}
+
+.region-tooltip-meta {
+    font-size: var(--font-size-xs);
+    color: var(--text-secondary);
+}
+
+.region-card {
+    position: absolute;
+    top: var(--space-3);
+    right: var(--space-3);
+    z-index: 4;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    width: min(280px, calc(100% - 2 * var(--space-3)));
+    padding: var(--space-3);
+    background: rgb(20 27 35 / 0.94);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-overlay);
+    backdrop-filter: blur(6px);
+    animation: region-card-in 180ms ease-out;
+}
+
+.region-card-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-2);
+}
+
+.region-card-heading {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.region-card-name {
+    font-size: var(--font-size-lg);
+    font-weight: 650;
+    line-height: 1.25;
+}
+
+.region-card-side {
+    font-size: var(--font-size-sm);
+    color: var(--text-muted);
+}
+
+.region-card-role {
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+}
+
+.region-card-activity {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) 40px;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.region-card-activity-label {
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+}
+
+.region-card-activity-track {
+    height: 6px;
+    overflow: hidden;
+    background: var(--surface-3);
+    border-radius: 999px;
+}
+
+.region-card-activity-fill {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    transition: width 0.25s ease-out;
+}
+
+.region-card-activity-value {
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+@keyframes region-card-in {
+    from {
+        opacity: 0;
+        transform: translateY(-4px);
+    }
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}

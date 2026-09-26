@@ -41,7 +41,7 @@ function App() {
 
       <main className="stage">
         <section className="stage-panel stage-panel--reader" aria-label="Leser">
-          <StageCaption title="Leser" subtitle="Drosophila melanogaster" />
+          <StageCaption title="Leser" subtitle="Drosophila melanogaster" hint="Ziehen zum Drehen · Scrollen zum Zoomen" />
           <div className="stage-canvas">
             <FlyBookScene
               wordsRead={tick?.wordsRead ?? 0}
@@ -63,7 +63,11 @@ function App() {
         </section>
 
         <section className="stage-panel stage-panel--brain" aria-label="Gehirn">
-          <StageCaption title="Gehirn" subtitle="Echtes FlyWire-Konnektom · ≈ 139.000 Neuronen" />
+          <StageCaption
+            title="Gehirn"
+            subtitle="Echtes FlyWire-Konnektom · ≈ 139.000 Neuronen"
+            hint="Region anklicken für Details · Ziehen zum Drehen"
+          />
           <div className="stage-canvas">
             <BrainScene activity={tick?.neuropilActivity} />
           </div>
@@ -92,8 +96,8 @@ function App() {
   );
 }
 
-/** Top-left label of a 3D stage, plus a hover hint that the model can be orbited. */
-function StageCaption({ title, subtitle }: { title: string; subtitle: string }) {
+/** Top-left label of a 3D stage, plus a hover hint on how to interact with it. */
+function StageCaption({ title, subtitle, hint }: { title: string; subtitle: string; hint: string }) {
   return (
     <>
       <div className="stage-caption">
@@ -101,7 +105,7 @@ function StageCaption({ title, subtitle }: { title: string; subtitle: string }) 
         <span className="stage-caption-subtitle">{subtitle}</span>
       </div>
       <span className="stage-hint" aria-hidden="true">
-        Ziehen zum Drehen · Scrollen zum Zoomen
+        {hint}
       </span>
     </>
   );

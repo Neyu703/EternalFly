@@ -1,9 +1,7 @@
 import * as THREE from "three";
 import { WORDS_PER_SPREAD, readingPositionOf, wordBoxAt, type WordBox } from "./readingLayout";
 import type { PageSurface } from "./pageSurface";
-
-const PREFERS_REDUCED_MOTION =
-    typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+import { PREFERS_REDUCED_MOTION } from "../../utils/motion";
 
 // Where the fly stands relative to the word it reads (its head sits just past the word).
 const HEAD_OFFSET_X = 0.02;
