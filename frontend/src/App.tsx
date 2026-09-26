@@ -43,7 +43,11 @@ function App() {
         <section className="stage-panel stage-panel--reader" aria-label="Leser">
           <StageCaption title="Leser" subtitle="Drosophila melanogaster" />
           <div className="stage-canvas">
-            <FlyBookScene />
+            <FlyBookScene
+              wordsRead={tick?.wordsRead ?? 0}
+              isPaused={isPaused || !isConnected}
+              arousal={tick?.regionActivity.arousal ?? 0}
+            />
           </div>
           {tick?.wantsNewBook && (
             <aside className="bored-notice" role="status">
