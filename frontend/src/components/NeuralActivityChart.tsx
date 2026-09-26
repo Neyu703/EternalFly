@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { TickData } from "../types";
-import { formatPercent } from "../utils/format";
+import { AROUSAL_METRIC, DOPAMINE_METRIC, FIRING_RATE_METRIC, type MetricDefinition } from "../metrics";
 import { Sparkline } from "./Sparkline";
 import "./NeuralActivityChart.css";
 
@@ -16,14 +16,14 @@ function overallFiringRate(tick: TickData): number {
   return rates.reduce((sum, rate) => sum + rate, 0) / rates.length;
 }
 
-/** Live-updating status card: the fly's current dopamine rating, overall firing rate and
- * arousal, each with its own rolling sparkline over the last HISTORY_LENGTH ticks (~4s
- * at the default tick rate). Dopamine and arousal plot against their real fixed 0-10 /
- * 0-100% domain (they're already calibrated to it, see emotion_decoder.py), while firing
- * rate auto-scales to its own observed peak since it isn't ceiling-normalized. While
- * isPaused, the backend keeps resending the same frozen tick - history stops accepting
- * new points so the sparklines hold their last real trend instead of flattening out into
- * a repeated-value line. */
+/** Footer of the brain stage: the fly's current dopamine rating, arousal and overall
+ * firing rate as three tiles, each with its own rolling sparkline over the last
+ * HISTORY_LENGTH ticks (~4s at the default tick rate). Dopamine and arousal plot against
+ * their real fixed 0-10 / 0-100% domain (they're already calibrated to it, see
+ * emotion_decoder.py), while firing rate auto-scales to its own observed peak since it
+ * isn't ceiling-normalized. While isPaused, the backend keeps resending the same frozen
+ * tick - history stops accepting new points so the sparklines hold their last real trend
+ * instead of flattening out into a repeated-value line. */
 export function NeuralActivityChart({ tick, isPaused }: { tick: TickData; isPaused: boolean }) {
   const [firingRateHistory, setFiringRateHistory] = useState<number[]>([]);
   const [ratingHistory, setRatingHistory] = useState<number[]>([]);
@@ -41,45 +41,52 @@ export function NeuralActivityChart({ tick, isPaused }: { tick: TickData; isPaus
   }, [tick, isPaused]);
 
   const currentFiringRate = firingRateHistory[firingRateHistory.length - 1] ?? 0;
-  const arousal = tick.regionActivity.arousal ?? 0;
   const trackedRegionCount = Object.keys(tick.neuropilActivity).length;
 
   return (
-    <div className="neural-activity-panel">
-      <div className="neural-activity-header">
-        <span className="neural-activity-title">EternalFly · Live Neural Activity</span>
-        <span className="neural-activity-live-dot" />
-      </div>
+    <div className="neural-activity">
+      <MetricTile metric={DOPAMINE_METRIC} value={tick.rating0To10} history={ratingHistory} />
+      <MetricTile metric={AROUSAL_METRIC} value={tick.regionActivity.arousal ?? 0} history={arousalHistory} />
+      <MetricTile
+        metric={FIRING_RATE_METRIC}
+        value={currentFiringRate}
+        history={firingRateHistory}
+        detail={trackedRegionCount > 0 ? `${trackedRegionCount} Regionen` : undefined}
+      />
+    </div>
+  );
+}
 
-      <div className="neural-activity-stats">
-        <div className="neural-activity-stat">
-          <span className="neural-activity-stat-label">Dopamin-Level</span>
-          <span className="neural-activity-stat-value neural-activity-stat-value--rating">
-            {tick.rating0To10.toFixed(1)} <span className="neural-activity-stat-unit">/10</span>
-          </span>
-          <span className="neural-activity-stat-caption">Bewertung des Buchs</span>
-        </div>
-        <div className="neural-activity-stat">
-          <span className="neural-activity-stat-label">Feuerrate</span>
-          <span className="neural-activity-stat-value neural-activity-stat-value--firing-rate">
-            {formatPercent(currentFiringRate)}
-          </span>
-          <span className="neural-activity-stat-caption">
-            {trackedRegionCount > 0 ? `${trackedRegionCount} Hirnregionen` : "approach/avoidance/arousal"}
-          </span>
-        </div>
-        <div className="neural-activity-stat">
-          <span className="neural-activity-stat-label">Erregung</span>
-          <span className="neural-activity-stat-value neural-activity-stat-value--arousal">
-            {formatPercent(arousal)}
-          </span>
-          <span className="neural-activity-stat-caption">Arousal-Pool</span>
-        </div>
+/** One live metric: its color key and label, the current value in text ink, and its
+ * rolling sparkline. The metric's description (plus any detail) is a hover tooltip. */
+function MetricTile({
+  metric,
+  value,
+  history,
+  detail,
+}: {
+  metric: MetricDefinition;
+  value: number;
+  history: number[];
+  detail?: string;
+}) {
+  return (
+    <div className="metric-tile" title={detail ? `${metric.description} (${detail})` : metric.description}>
+      <div className="metric-tile-header">
+        <span className="swatch" style={{ background: metric.color }} />
+        <span className="overline">{metric.label}</span>
       </div>
-
-      <Sparkline label="Dopamin-Verlauf" history={ratingHistory} maxValue={10} color="#ffd166" formatDomain={(value) => value.toFixed(0)} />
-      <Sparkline label="Erregung-Verlauf" history={arousalHistory} maxValue={1} color="#ef476f" formatDomain={formatPercent} />
-      <Sparkline label="Feuerrate-Verlauf" history={firingRateHistory} color="#7fd4ff" formatDomain={formatPercent} />
+      <div className="metric-tile-value">
+        {metric.formatValue(value)}
+        {metric.unit && <span className="metric-tile-unit">{metric.unit}</span>}
+      </div>
+      <Sparkline
+        history={history}
+        maxValue={metric.maxValue}
+        color={metric.color}
+        formatValue={metric.formatValue}
+        height={22}
+      />
     </div>
   );
 }

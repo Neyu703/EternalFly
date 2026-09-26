@@ -2,7 +2,8 @@ import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import { BrainGlow, type NeuropilActivity } from "./BrainGlow";
 
-/** 3D panel: the live brain-activity glow, centered in its own canvas. */
+/** 3D panel: the live brain-activity glow, centered in its own canvas. Orbiting is
+ * limited to rotate and a bounded zoom, so the brain can't be panned or zoomed out of view. */
 export function BrainScene({ activity }: { activity?: NeuropilActivity }) {
   return (
     <Canvas camera={{ position: [0, 0, 2.6], fov: 50 }}>
@@ -12,7 +13,7 @@ export function BrainScene({ activity }: { activity?: NeuropilActivity }) {
       <group scale={0.28}>
         <BrainGlow activity={activity} />
       </group>
-      <OrbitControls />
+      <OrbitControls enablePan={false} minDistance={1.2} maxDistance={6} />
     </Canvas>
   );
 }

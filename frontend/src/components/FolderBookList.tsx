@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { listBooksInFolder, loadBookByPath, type FolderBook } from "../hooks/useLoadBook";
-import "./CalibreBookList.css";
+import "./BookList.css";
 
 /** Shown after the user picks a folder via LoadBookButton: lists the .epub/.txt files
  * directly inside it and lets them load one with one click. */
@@ -26,19 +26,20 @@ export function FolderBookList({ folderPath }: { folderPath: string }) {
     if (!result.ok) setErrorMessage(result.error);
   }
 
-  if (errorMessage) return <span className="calibre-list-error">{errorMessage}</span>;
-  if (books.length === 0) return <span className="calibre-list-error">Keine .epub/.txt Dateien gefunden.</span>;
+  if (errorMessage) return <p className="error-text">{errorMessage}</p>;
+  if (books.length === 0) return <p className="book-list-empty">Keine .epub- oder .txt-Dateien in diesem Ordner.</p>;
 
   return (
-    <ul className="calibre-list">
+    <ul className="book-list">
       {books.map((book) => (
         <li key={book.filePath}>
           <button
-            className="calibre-list-item"
+            className="book-list-item"
             disabled={loadingPath === book.filePath}
             onClick={() => handlePick(book.filePath)}
           >
-            {book.fileName}
+            <span className="book-list-title">{book.fileName}</span>
+            {loadingPath === book.filePath && <span className="book-list-meta">Lädt…</span>}
           </button>
         </li>
       ))}

@@ -1,0 +1,79 @@
+.app-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    height: 56px;
+    padding: 0 var(--space-5);
+    background: var(--surface-1);
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.app-brand {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+}
+
+.app-brand-mark {
+    flex-shrink: 0;
+    color: var(--accent);
+}
+
+.app-brand-name {
+    font-size: 17px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+}
+
+.app-brand-tagline {
+    min-width: 0;
+    margin-left: var(--space-2);
+    padding-left: var(--space-3);
+    overflow: hidden;
+    border-left: 1px solid var(--border-default);
+    font-size: var(--font-size-md);
+    color: var(--text-muted);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.status-pill {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: var(--space-2);
+    height: 28px;
+    padding: 0 var(--space-3);
+    background: var(--surface-2);
+    border: 1px solid var(--border-subtle);
+    border-radius: 999px;
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+}
+
+.status-pill-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--text-muted);
+}
+
+.status-pill--live .status-pill-dot {
+    background: var(--status-good);
+    box-shadow: 0 0 0 3px rgb(12 163 12 / 0.22);
+    animation: pulse 2s ease-in-out infinite;
+}
+
+.status-pill--paused .status-pill-dot {
+    background: var(--status-warning);
+}
+
+.status-pill--connecting .status-pill-dot {
+    animation: pulse 1.2s ease-in-out infinite;
+}
+
+.status-pill--disconnected .status-pill-dot {
+    background: var(--status-critical);
+}

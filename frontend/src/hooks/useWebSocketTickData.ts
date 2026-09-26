@@ -44,17 +44,20 @@ function toTickData(raw: RawTick): TickData {
 
 /**
  * Connects to the real eternalfly WebSocket server and returns the latest tick (or `null`
- * before the first message has arrived) alongside a function for sending playback control
- * messages back over the same socket. Reconnects automatically (with a short delay) if the
- * connection drops, so a server restart doesn't permanently strand the UI — the most
- * recently sent control message of each type is replayed on every (re)connect, so a chosen
- * pause/speed/autoplay setting survives a dropped connection.
+ * before the first message has arrived), whether the socket is currently open, and a
+ * function for sending playback control messages back over the same socket. Reconnects
+ * automatically (with a short delay) if the connection drops, so a server restart doesn't
+ * permanently strand the UI — the most recently sent control message of each type is
+ * replayed on every (re)connect, so a chosen pause/speed/autoplay setting survives a
+ * dropped connection.
  */
 export function useWebSocketTickData(url: string): {
   tick: TickData | null;
+  isConnected: boolean;
   sendControlMessage: (message: ControlMessage) => void;
 } {
   const [tick, setTick] = useState<TickData | null>(null);
+  const [isConnected, setIsConnected] = useState(false);
   const urlRef = useRef(url);
   urlRef.current = url;
   const socketRef = useRef<WebSocket | null>(null);
@@ -66,18 +69,23 @@ export function useWebSocketTickData(url: string): {
     let stopped = false;
 
     const connect = () => {
-      socket = new WebSocket(urlRef.current);
-      socketRef.current = socket;
-      socket.onopen = () => {
+      const currentSocket = new WebSocket(urlRef.current);
+      socket = currentSocket;
+      socketRef.current = currentSocket;
+      currentSocket.onopen = () => {
+        setIsConnected(true);
         for (const message of lastControlMessageByTypeRef.current.values()) {
-          socket?.send(JSON.stringify(message));
+          currentSocket.send(JSON.stringify(message));
         }
       };
-      socket.onmessage = (event) => {
+      currentSocket.onmessage = (event) => {
         const raw = JSON.parse(event.data) as RawTick;
         setTick(toTickData(raw));
       };
-      socket.onclose = () => {
+      currentSocket.onclose = () => {
+        // A superseded socket (e.g. StrictMode's discarded first mount) can close after
+        // its replacement already opened; only the current socket owns the status.
+        if (socketRef.current === currentSocket) setIsConnected(false);
         if (!stopped) reconnectTimeoutId = setTimeout(connect, 1000);
       };
     };
@@ -97,5 +105,5 @@ export function useWebSocketTickData(url: string): {
     }
   }, []);
 
-  return { tick, sendControlMessage };
+  return { tick, isConnected, sendControlMessage };
 }

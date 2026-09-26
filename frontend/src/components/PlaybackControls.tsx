@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import type { AutoplayMode, ControlMessage } from "../hooks/useWebSocketTickData";
+import { formatInteger } from "../utils/format";
+import { PauseIcon, PlayIcon } from "./icons";
 import "./PlaybackControls.css";
 
 const WPM_PRESETS = [60, 150, 300, 600, 1200, 3000, 10000] as const;
@@ -7,11 +9,11 @@ const CUSTOM_WPM_OPTION = "custom";
 const DEFAULT_WORDS_PER_MINUTE = 150;
 const DEFAULT_AUTOPLAY_MODE: AutoplayMode = "restart";
 
-/** Play/pause toggle, a reading-speed slider, and a selector for what the fly does once
- * it finishes a book (read it again from the start, or shuffle in a random Calibre book).
- * Sends every change straight to the backend over the shared WebSocket control channel.
- * isPaused/onTogglePaused are lifted to the app root so other components (e.g. the Live
- * Neural Activity chart) can also react to the paused state. */
+/** HUD card with the play/pause toggle, a reading-speed selector, and what the fly does
+ * once it finishes a book (read it again from the start, shuffle in a random Calibre
+ * book, or stop). Sends every change straight to the backend over the shared WebSocket
+ * control channel. isPaused/onTogglePaused are lifted to the app root so other components
+ * (e.g. the brain stage's sparklines) can also react to the paused state. */
 export function PlaybackControls({
   isPaused,
   onTogglePaused,
@@ -59,42 +61,54 @@ export function PlaybackControls({
   }
 
   return (
-    <div className="playback-controls">
-      <button className="playback-toggle" onClick={onTogglePaused}>
-        {isPaused ? "▶ Weiterlesen" : "⏸ Pausieren"}
+    <section className="card playback" aria-labelledby="playback-title">
+      <h2 id="playback-title" className="overline">
+        Wiedergabe
+      </h2>
+
+      <button className="button button--primary playback-toggle" onClick={onTogglePaused}>
+        {isPaused ? <PlayIcon /> : <PauseIcon />}
+        {isPaused ? "Weiterlesen" : "Pausieren"}
       </button>
 
-      <label className="playback-speed">
-        <span className="hud-label">Tempo</span>
-        <select value={isCustomWpm ? CUSTOM_WPM_OPTION : wordsPerMinute} onChange={handleWpmPresetChange}>
+      <label className="playback-field">
+        <span className="playback-field-label">Tempo</span>
+        <select
+          className="select"
+          value={isCustomWpm ? CUSTOM_WPM_OPTION : wordsPerMinute}
+          onChange={handleWpmPresetChange}
+        >
           {WPM_PRESETS.map((preset) => (
             <option key={preset} value={preset}>
-              {preset} Wörter/Min
+              {formatInteger(preset)} Wörter/Min
             </option>
           ))}
           <option value={CUSTOM_WPM_OPTION}>Benutzerdefiniert…</option>
         </select>
-        {isCustomWpm && (
+      </label>
+
+      {isCustomWpm && (
+        <label className="playback-field">
+          <span className="playback-field-label">Wörter/Min</span>
           <input
             type="number"
-            className="playback-speed-custom-input"
+            className="input"
             min={1}
             step={1}
             value={wordsPerMinute}
             onChange={handleCustomWpmChange}
-            placeholder="Wörter/Min"
           />
-        )}
-      </label>
+        </label>
+      )}
 
-      <label className="playback-autoplay-mode">
-        <span className="hud-label">Am Ende</span>
-        <select value={autoplayMode} onChange={handleAutoplayModeChange}>
+      <label className="playback-field">
+        <span className="playback-field-label">Am Ende</span>
+        <select className="select" value={autoplayMode} onChange={handleAutoplayModeChange}>
           <option value="restart">Von vorne</option>
           <option value="shuffle">Zufälliges Buch</option>
           <option value="off">Anhalten</option>
         </select>
       </label>
-    </div>
+    </section>
   );
 }

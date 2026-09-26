@@ -1,0 +1,54 @@
+.book-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.book-list-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  padding: 6px var(--space-2);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.book-list-item:hover:not(:disabled) {
+  background: var(--surface-3);
+}
+
+.book-list-item:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+.book-list-title,
+.book-list-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.book-list-title {
+  font-size: var(--font-size-md);
+}
+
+.book-list-meta {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+.book-list-empty {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}

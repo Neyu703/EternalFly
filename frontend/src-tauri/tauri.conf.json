@@ -13,8 +13,11 @@
     "windows": [
       {
         "title": "EternalFly",
-        "width": 800,
-        "height": 600,
+        "width": 1920,
+        "height": 1032,
+        "minWidth": 800,
+        "minHeight": 600,
+        "maximized": true,
         "resizable": true,
         "fullscreen": false
       }

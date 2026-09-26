@@ -1,0 +1,70 @@
+.emotion-panel {
+    container-type: inline-size;
+}
+
+.emotion-panel-dominant {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-secondary);
+}
+
+/* One column of 8 rows in a narrow card; two columns of 4 once there's room. Rows share
+   the card's remaining height so the list always fills it evenly. */
+.emotion-list {
+    display: grid;
+    flex: 1;
+    grid-auto-rows: minmax(13px, 1fr);
+    align-items: center;
+    column-gap: var(--space-5);
+    row-gap: 2px;
+    min-height: 0;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+@container (min-width: 440px) {
+    .emotion-list {
+        grid-template-rows: repeat(4, minmax(13px, 1fr));
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-auto-flow: column;
+    }
+}
+
+.emotion-row {
+    display: grid;
+    grid-template-columns: 88px minmax(24px, 1fr) 38px;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+}
+
+.emotion-label {
+    overflow: hidden;
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.emotion-track {
+    height: 6px;
+    overflow: hidden;
+    background: var(--surface-3);
+    border-radius: 999px;
+}
+
+.emotion-fill {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    transition: width 0.25s ease-out;
+}
+
+.emotion-value {
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}

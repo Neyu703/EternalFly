@@ -1,60 +1,113 @@
-import { useState } from "react";
-import { open } from "@tauri-apps/plugin-dialog";
+import { useEffect, useState } from "react";
+import { isTauri } from "@tauri-apps/api/core";
+import { open, type OpenDialogOptions } from "@tauri-apps/plugin-dialog";
 import { loadBookByPath } from "../hooks/useLoadBook";
 import { FolderBookList } from "./FolderBookList";
+import { CloseIcon, FileIcon, FolderIcon } from "./icons";
 import "./LoadBookButton.css";
 
-/** Two buttons — one opening a native file picker for a single .txt/.epub, the other a
- * native folder picker whose .epub/.txt files are then listed to choose from — either
- * way handing the chosen path to the backend, which restarts the reading position but
- * keeps the simulated brain's ongoing state. */
+/** Last segment of a file-system path, used as a compact folder heading. */
+function lastPathSegment(path: string): string {
+  return path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
+}
+
+/** Two header buttons — one opening a native file picker for a single .txt/.epub, the
+ * other a native folder picker whose .epub/.txt files are then listed in a popover to
+ * choose from — either way handing the chosen path to the backend, which restarts the
+ * reading position but keeps the simulated brain's ongoing state. Errors surface in the
+ * same popover; it closes via its close button or Escape. */
 export function LoadBookButton() {
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
   const [errorMessage, setErrorMessage] = useState("");
   const [selectedFolderPath, setSelectedFolderPath] = useState<string | null>(null);
+  const isPopoverOpen = status === "error" || selectedFolderPath !== null;
 
-  async function loadBookAtPath(path: string) {
-    setStatus("loading");
-    setErrorMessage("");
-    const result = await loadBookByPath(path);
-    if (result.ok) {
-      setStatus("idle");
-    } else {
-      setStatus("error");
-      setErrorMessage(result.error);
+  useEffect(() => {
+    if (!isPopoverOpen) return;
+    /** Closes the popover on Escape, wherever focus currently is. */
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") closePopover();
     }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [isPopoverOpen]);
+
+  function closePopover() {
+    setStatus("idle");
+    setErrorMessage("");
+    setSelectedFolderPath(null);
+  }
+
+  function showError(message: string) {
+    setStatus("error");
+    setErrorMessage(message);
+  }
+
+  /** Opens a native picker and returns the chosen path, or null if cancelled or not
+   * running inside the desktop app (a plain browser has no native dialogs). */
+  async function pickPath(options: OpenDialogOptions): Promise<string | null> {
+    if (!isTauri()) {
+      showError("Die Dateiauswahl gibt es nur in der Desktop-App.");
+      return null;
+    }
+    const selectedPath = await open(options);
+    return typeof selectedPath === "string" ? selectedPath : null;
   }
 
   async function handlePickFile() {
-    const selectedPath = await open({
-      multiple: false,
-      filters: [{ name: "Buch", extensions: ["txt", "epub"] }],
-    });
-    if (!selectedPath || Array.isArray(selectedPath)) return;
+    const selectedPath = await pickPath({ multiple: false, filters: [{ name: "Buch", extensions: ["txt", "epub"] }] });
+    if (!selectedPath) return;
     setSelectedFolderPath(null);
-    await loadBookAtPath(selectedPath);
+    setStatus("loading");
+    setErrorMessage("");
+    const result = await loadBookByPath(selectedPath);
+    if (result.ok) {
+      setStatus("idle");
+    } else {
+      showError(result.error);
+    }
   }
 
   async function handlePickFolder() {
-    const selectedPath = await open({ directory: true, multiple: false });
-    if (!selectedPath || Array.isArray(selectedPath)) return;
+    const selectedPath = await pickPath({ directory: true, multiple: false });
+    if (!selectedPath) return;
     setStatus("idle");
     setErrorMessage("");
     setSelectedFolderPath(selectedPath);
   }
 
+  const isLoading = status === "loading";
+
   return (
     <div className="load-book">
-      <div className="load-book-buttons">
-        <button className="load-book-button" onClick={handlePickFile} disabled={status === "loading"}>
-          {status === "loading" ? "Lädt…" : "Datei laden"}
-        </button>
-        <button className="load-book-button" onClick={handlePickFolder} disabled={status === "loading"}>
-          Ordner laden
-        </button>
-      </div>
-      {status === "error" && <span className="load-book-error">{errorMessage}</span>}
-      {selectedFolderPath && <FolderBookList folderPath={selectedFolderPath} />}
+      <button className="button" onClick={handlePickFile} disabled={isLoading}>
+        {isLoading ? <span className="spinner spinner--small" aria-hidden="true" /> : <FileIcon />}
+        {isLoading ? "Lädt…" : "Datei laden"}
+      </button>
+      <button className="button" onClick={handlePickFolder} disabled={isLoading}>
+        <FolderIcon />
+        Ordner laden
+      </button>
+
+      {isPopoverOpen && (
+        <div className="load-book-popover" role="dialog" aria-label={selectedFolderPath ? "Bücher im Ordner" : "Fehler"}>
+          <div className="load-book-popover-header">
+            <div className="load-book-popover-heading">
+              <span className="overline">{selectedFolderPath ? "Ordner" : "Buch konnte nicht geladen werden"}</span>
+              {selectedFolderPath && (
+                <span className="load-book-popover-title" title={selectedFolderPath}>
+                  {lastPathSegment(selectedFolderPath)}
+                </span>
+              )}
+            </div>
+            <button className="icon-button" onClick={closePopover} aria-label="Schließen">
+              <CloseIcon />
+            </button>
+          </div>
+          {status === "error" && <p className="error-text">{errorMessage}</p>}
+          {selectedFolderPath && <FolderBookList folderPath={selectedFolderPath} />}
+        </div>
+      )}
     </div>
   );
 }

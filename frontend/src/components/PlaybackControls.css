@@ -1,51 +1,16 @@
-.playback-controls {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 6px 14px;
-  background: #131b24;
-  border-radius: 8px;
-}
-
 .playback-toggle {
-  flex-shrink: 0;
-  padding: 6px 12px;
-  border: 1px solid #2a3a4a;
-  border-radius: 6px;
-  background: #1c2733;
-  color: #e6edf3;
-  font-size: 13px;
-  cursor: pointer;
+  width: 100%;
+  height: 34px;
 }
 
-.playback-toggle:hover {
-  background: #223140;
+.playback-field {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2);
 }
 
-.playback-speed,
-.playback-autoplay-mode {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.playback-speed select,
-.playback-autoplay-mode select {
-  background: #1c2733;
-  color: #e6edf3;
-  border: 1px solid #2a3a4a;
-  border-radius: 6px;
-  padding: 3px 6px;
-  font-size: 12px;
-}
-
-.playback-speed-custom-input {
-  width: 90px;
-  background: #1c2733;
-  color: #e6edf3;
-  border: 1px solid #2a3a4a;
-  border-radius: 6px;
-  padding: 3px 6px;
-  font-size: 12px;
+.playback-field-label {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
 }

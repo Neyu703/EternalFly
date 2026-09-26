@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { TickData } from "../types";
 
 const NUM_BUCKETS = 200;
@@ -88,9 +88,8 @@ export function useBookHistory(tick: TickData | null): {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tick]);
 
-  function dismissFinishedBookHistory() {
-    setFinishedBookHistory(null);
-  }
+  // Stable identity, so the overview dialog's Escape-key listener isn't re-registered on every tick.
+  const dismissFinishedBookHistory = useCallback(() => setFinishedBookHistory(null), []);
 
   return { finishedBookHistory, dismissFinishedBookHistory };
 }

@@ -1,64 +1,128 @@
-.book-overview-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(4, 6, 10, 0.75);
-  backdrop-filter: blur(3px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 100;
+.modal {
+  width: min(760px, calc(100vw - 48px));
+  max-width: none;
+  max-height: calc(100vh - 48px);
+  padding: 0;
+  overflow: hidden;
+  background: var(--surface-2);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-overlay);
+  color: var(--text-primary);
+  --chart-surface: var(--surface-2);
 }
 
-.book-overview-panel {
-  width: min(680px, 92vw);
-  max-height: 86vh;
+.modal[open] {
+  animation: modal-in 200ms ease-out;
+}
+
+/* ::backdrop doesn't reliably inherit custom properties, so these stay literal. */
+.modal::backdrop {
+  background: rgb(4 6 10 / 0.72);
+  backdrop-filter: blur(4px);
+}
+
+.modal-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  max-height: calc(100vh - 48px);
+  padding: var(--space-5);
   overflow-y: auto;
-  box-sizing: border-box;
-  padding: 20px 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  background: #0e141b;
-  border: 1px solid #263544;
-  border-radius: 14px;
-  color: #e6edf3;
-  font-family: system-ui, sans-serif;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
 }
 
-.book-overview-header {
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.modal-heading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.modal-title {
+  font-size: 19px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.book-overview-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.summary-stat {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.summary-stat-label {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 6px;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
 }
 
-.book-overview-title {
-  font-size: 15px;
-  font-weight: 700;
+.summary-stat-value {
+  overflow: hidden;
+  font-size: 22px;
+  font-weight: 650;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.book-overview-close {
-  background: none;
-  border: none;
-  color: #8b98a5;
-  font-size: 16px;
-  cursor: pointer;
-  line-height: 1;
-  padding: 4px;
+.summary-stat-unit {
+  margin-left: 2px;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--text-muted);
 }
 
-.book-overview-close:hover {
-  color: #e6edf3;
-}
-
-.book-overview-main-charts {
+.book-overview-section {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-3);
 }
 
-.book-overview-emotion-grid {
+.book-overview-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: calc(-1 * var(--space-2));
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+.book-overview-emotions {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 12px 20px;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--space-4) var(--space-5);
+}
+
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }

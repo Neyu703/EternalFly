@@ -1,0 +1,51 @@
+.reading-status {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.reading-status-row {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--space-3);
+    min-width: 0;
+}
+
+.reading-status-word-block {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.reading-status-word {
+    overflow: hidden;
+    font-size: 22px;
+    font-weight: 600;
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.reading-status-count {
+    flex-shrink: 0;
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+}
+
+.progress {
+    height: 6px;
+    overflow: hidden;
+    background: var(--surface-3);
+    border-radius: 999px;
+}
+
+.progress-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: inherit;
+    transition: width 0.3s ease-out;
+}

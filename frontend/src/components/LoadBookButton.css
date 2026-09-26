@@ -1,39 +1,51 @@
 .load-book {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+  gap: var(--space-2);
+}
+
+.load-book-popover {
+  position: absolute;
+  top: calc(100% + var(--space-3));
+  right: 0;
+  z-index: 50;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  flex-shrink: 0;
-  max-width: 200px;
+  gap: var(--space-2);
+  width: 340px;
+  max-height: 460px;
+  padding: var(--space-3);
+  background: var(--surface-2);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-overlay);
 }
 
-.load-book-buttons {
+.load-book-popover-header {
   display: flex;
-  gap: 6px;
+  flex-shrink: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
 }
 
-.load-book-button {
-  padding: 8px 14px;
-  background: #1c2733;
-  border: 1px solid #2e3d4d;
-  border-radius: 8px;
-  color: #e6edf3;
-  font-family: system-ui, sans-serif;
-  font-size: 13px;
-  cursor: pointer;
+.load-book-popover-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding-top: 2px;
+}
+
+.load-book-popover-title {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.load-book-button:hover:not(:disabled) {
-  background: #253242;
-}
-
-.load-book-button:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-.load-book-error {
-  font-size: 11px;
-  color: #ff6b6b;
-  max-width: 160px;
+.spinner--small {
+  width: 14px;
+  height: 14px;
 }

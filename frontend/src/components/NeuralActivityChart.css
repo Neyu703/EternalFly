@@ -1,121 +1,35 @@
-.neural-activity-panel {
-  position: absolute;
-  right: 16px;
-  bottom: 16px;
-  width: 320px;
-  box-sizing: border-box;
-  padding: 14px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  background: rgba(10, 14, 20, 0.88);
-  border: 1px solid #263544;
-  border-radius: 10px;
-  backdrop-filter: blur(4px);
-  font-family: system-ui, sans-serif;
-  color: #e6edf3;
-  pointer-events: none;
-}
-
-.neural-activity-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.neural-activity-title {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: #8b98a5;
-}
-
-.neural-activity-live-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #ffd166;
-  box-shadow: 0 0 6px 1px rgba(255, 209, 102, 0.7);
-  animation: neural-activity-pulse 1.6s ease-in-out infinite;
-}
-
-@keyframes neural-activity-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.35;
-  }
-}
-
-.neural-activity-stats {
+.neural-activity {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-4);
 }
 
-.neural-activity-stat {
+.metric-tile {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
 }
 
-.neural-activity-stat-label {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: #8b98a5;
+.metric-tile-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
 
-.neural-activity-stat-value {
+.metric-tile-value {
   font-size: 20px;
-  font-weight: 700;
-  line-height: 1.15;
-}
-
-.neural-activity-stat-value--rating {
-  color: #ffd166;
-}
-
-.neural-activity-stat-value--firing-rate {
-  color: #7fd4ff;
-}
-
-.neural-activity-stat-value--arousal {
-  color: #ef476f;
-}
-
-.neural-activity-stat-unit {
-  font-size: 11px;
-  font-weight: 500;
-  color: #8b98a5;
-}
-
-.neural-activity-stat-caption {
-  font-size: 10px;
-  color: #5f6b78;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
-.neural-activity-sparkline-block {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.neural-activity-chart-caption {
-  display: flex;
-  justify-content: space-between;
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: #5f6b78;
-}
-
-.neural-activity-sparkline {
-  width: 100%;
-  height: 28px;
-  display: block;
+.metric-tile-unit {
+  margin-left: 2px;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--text-muted);
 }
