@@ -28,7 +28,7 @@ export const EMOTION_LABELS: Record<EmotionName, string> = {
 
 /** The brain circuit behind each emotional state, shown as its tooltip. */
 export const EMOTION_CIRCUITS: Record<EmotionName, string> = {
-  reward: "Reward dopamine neurons (PAM) at the mushroom body's medial lobe outweigh the punishment side",
-  aversion: "Punishment dopamine neurons (PPL1) at the mushroom body's vertical lobe outweigh the reward side",
-  arousal: "Octopamine neurons driving the central complex",
+  reward: "Firing of the reward dopamine neurons (PAM) of the mushroom body's medial lobe above their resting level",
+  aversion: "Firing of the punishment dopamine neurons (PPL1) of the mushroom body's vertical lobe above their resting level",
+  arousal: "Firing of the octopamine neurons driving the central complex above their resting level",
 };

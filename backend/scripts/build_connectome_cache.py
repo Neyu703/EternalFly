@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy
 import scipy.sparse
 
-from eternalfly.connectome import build_signed_adjacency, select_pool_by_activity
+from eternalfly.connectome import build_signed_adjacency, keep_shared_neurons_in_majority_pool, select_pool_by_activity
 from eternalfly.data_prep import (
     aggregate_connections_by_neuron_pair,
     aggregate_neuron_activity_by_neuropil,
@@ -23,34 +23,29 @@ from eternalfly.neuropils import ALL_NEUROPIL_NAMES
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 CACHE_DIR = DATA_DIR / "cache"
 
-# Neuropil groups per pool, chosen for biological plausibility (see plan docs):
-# optic lobe (visual) for sensory input, mushroom body medial/vertical lobes for
-# reward/punishment valence, central complex for arousal.
+# Neuropil groups per activity-selected pool: the optic lobe (visual) for sensory input.
 POOL_NEUROPILS = {
     "sensory_input": ["ME_L", "ME_R", "LO_L", "LO_R"],
-    "approach": ["MB_ML_L", "MB_ML_R"],
-    "avoidance": ["MB_VL_L", "MB_VL_R"],
-    "arousal": ["EB", "FB"],
 }
 POOL_TOP_FRACTION = 0.05
 
 # The medial mushroom body lobe is real Drosophila's reward-learning compartment
 # (PAM cluster dopaminergic input); the vertical lobe is the punishment-learning
-# compartment (PPL1 cluster). Reusing approach/avoidance's neuropils here, but this
-# time picking out the real dopaminergic (not just "active") presynaptic neurons that
-# broadcast into them, for a genuine, actively-excitatory reward/punishment channel
-# (see reading_session.py's use of these pools, and text_encoder.project_valence_to_currents).
+# compartment (PPL1 cluster). Picks out the real dopaminergic presynaptic neurons of
+# each lobe, which words excite by their sentiment and which are read back out as the
+# fly's reward and aversion (see reading_session.py and
+# text_encoder.project_valence_to_currents).
 VALENCE_DOPAMINERGIC_NEUROPILS = {
-    "valence_positive": POOL_NEUROPILS["approach"],
-    "valence_negative": POOL_NEUROPILS["avoidance"],
+    "valence_positive": ["MB_ML_L", "MB_ML_R"],
+    "valence_negative": ["MB_VL_L", "MB_VL_R"],
 }
 
 # Octopamine is Drosophila's real arousal/stress neuromodulator (the functional
 # analog of noradrenaline): broadly excitatory, promotes wakefulness/alertness, and
-# is a well-established real input to the central complex (our "arousal" pool's
-# neuropils) — the same role dopamine plays for approach/avoidance, but for arousal.
+# is a well-established real input to the central complex — the same role dopamine
+# plays for reward/punishment, but for arousal. Read back out as the fly's arousal.
 AROUSAL_OCTOPAMINERGIC_NEUROPILS = {
-    "arousal_input": POOL_NEUROPILS["arousal"],
+    "arousal_input": ["EB", "FB"],
 }
 
 
@@ -90,12 +85,14 @@ def build_neurotransmitter_filtered_pool_indices(
     every matching neuron rather than a top-activity fraction — being a real,
     specific-neurotransmitter presynaptic partner of that compartment is already a
     strong, biologically-motivated filter (a few hundred neurons here, not the
-    thousands build_pool_indices narrows down from)."""
+    thousands build_pool_indices narrows down from). A neuron synapsing into several
+    pools' neuropils is kept only in the pool holding most of those synapses (see
+    connectome.keep_shared_neurons_in_majority_pool), so the pools never overlap."""
     per_neuron_nt_table = aggregate_neurotransmitter_by_neuron(connections_table, "pre_pt_root_id")
     neuron_nt_labels = dominant_neurotransmitter_labels(per_neuron_nt_table)
     matching_neuron_ids = per_neuron_nt_table["pre_pt_root_id"].to_numpy()[neuron_nt_labels == neurotransmitter_label]
 
-    pool_indices = {}
+    pool_candidates = {}
     for pool_name, target_neuropils in pool_neuropils.items():
         candidate_ids, candidate_counts = aggregate_neuron_activity_by_neuropil(
             pre_neuropil_table, target_neuropils, "pre_pt_root_id"
@@ -103,11 +100,11 @@ def build_neurotransmitter_filtered_pool_indices(
         matches_neurotransmitter = numpy.isin(
             candidate_ids.astype(numpy.int64), matching_neuron_ids.astype(numpy.int64)
         )
-        matching_candidate_ids = candidate_ids[matches_neurotransmitter]
-        matching_candidate_counts = candidate_counts[matches_neurotransmitter]
-        known_ids, _known_counts = filter_ids_to_known_set(
-            matching_candidate_ids, matching_candidate_counts, root_ids
-        )
+        pool_candidates[pool_name] = (candidate_ids[matches_neurotransmitter], candidate_counts[matches_neurotransmitter])
+
+    pool_indices = {}
+    for pool_name, (candidate_ids, candidate_counts) in keep_shared_neurons_in_majority_pool(pool_candidates).items():
+        known_ids, _known_counts = filter_ids_to_known_set(candidate_ids, candidate_counts, root_ids)
         pool_indices[pool_name] = numpy.array([neuron_id_to_index[int(neuron_id)] for neuron_id in known_ids])
     return pool_indices
 

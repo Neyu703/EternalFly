@@ -1,10 +1,12 @@
 import pytest
 
 from eternalfly.emotion_decoder import (
+    PoolCalibration,
     RollingAverage,
     compute_emotions,
     compute_rating,
-    pool_rates_to_valence_arousal,
+    emotions_to_valence,
+    rate_above_rest,
 )
 
 
@@ -48,82 +50,59 @@ def test_rolling_average_running_sum_stays_correct_across_many_evictions():
     assert result == pytest.approx(expected_mean)
 
 
-def test_pool_rates_to_valence_arousal_scales_positive_valence_by_its_own_ceiling():
-    valence, arousal = pool_rates_to_valence_arousal(
-        approach_pool_rate=0.3,
-        avoidance_pool_rate=0.1,
-        arousal_pool_rate=0.5,
-        positive_valence_ceiling=0.4,
-        negative_valence_ceiling=0.1,
-        arousal_ceiling=1.0,
-    )
-    assert valence == pytest.approx(0.5)  # raw 0.2 / positive ceiling 0.4
-    assert arousal == pytest.approx(0.5)
+CALIBRATION = PoolCalibration(resting_rate=0.05, peak_rate=0.25)
+CALIBRATIONS = {"reward": CALIBRATION, "aversion": CALIBRATION, "arousal": CALIBRATION}
 
 
-def test_pool_rates_to_valence_arousal_scales_negative_valence_by_its_own_ceiling():
-    valence, _ = pool_rates_to_valence_arousal(
-        approach_pool_rate=0.1,
-        avoidance_pool_rate=0.3,
-        arousal_pool_rate=0.0,
-        positive_valence_ceiling=0.4,
-        negative_valence_ceiling=0.1,
-        arousal_ceiling=1.0,
-    )
-    assert valence == pytest.approx(-1.0)  # raw -0.2 / negative ceiling 0.1, clamped to -1.0
+def test_rate_above_rest_maps_resting_rate_to_zero():
+    assert rate_above_rest(0.05, CALIBRATION) == pytest.approx(0.0)
 
 
-def test_pool_rates_to_valence_arousal_clamps_valence_and_arousal_to_their_bounds():
-    valence, arousal = pool_rates_to_valence_arousal(
-        approach_pool_rate=1.0,
-        avoidance_pool_rate=0.0,
-        arousal_pool_rate=1.0,
-        positive_valence_ceiling=0.1,
-        negative_valence_ceiling=0.1,
-        arousal_ceiling=0.1,
-    )
-    assert valence == pytest.approx(1.0)
-    assert arousal == pytest.approx(1.0)
+def test_rate_above_rest_maps_peak_rate_to_one():
+    assert rate_above_rest(0.25, CALIBRATION) == pytest.approx(1.0)
 
 
-def test_pool_rates_to_valence_arousal_returns_zero_for_zero_ceiling():
-    valence, arousal = pool_rates_to_valence_arousal(
-        approach_pool_rate=0.5,
-        avoidance_pool_rate=0.0,
-        arousal_pool_rate=0.5,
-        positive_valence_ceiling=0.0,
-        negative_valence_ceiling=0.0,
-        arousal_ceiling=0.0,
-    )
-    assert valence == pytest.approx(0.0)
-    assert arousal == pytest.approx(0.0)
+def test_rate_above_rest_scales_linearly_between_rest_and_peak():
+    assert rate_above_rest(0.10, CALIBRATION) == pytest.approx(0.25)
+
+
+def test_rate_above_rest_clamps_below_rest_to_zero():
+    assert rate_above_rest(0.01, CALIBRATION) == pytest.approx(0.0)
+
+
+def test_rate_above_rest_clamps_above_peak_to_one():
+    assert rate_above_rest(0.9, CALIBRATION) == pytest.approx(1.0)
+
+
+def test_rate_above_rest_returns_zero_when_peak_is_not_above_rest():
+    assert rate_above_rest(0.5, PoolCalibration(resting_rate=0.2, peak_rate=0.2)) == 0.0
 
 
 def test_compute_emotions_returns_exactly_the_three_states_the_fly_brain_has():
-    emotions = compute_emotions(valence=0.0, arousal=0.0)
+    emotions = compute_emotions({"reward": 0.05, "aversion": 0.05, "arousal": 0.05}, CALIBRATIONS)
     assert set(emotions.keys()) == {"reward", "aversion", "arousal"}
 
 
-def test_compute_emotions_reads_positive_valence_as_reward():
-    emotions = compute_emotions(valence=0.4, arousal=0.0)
-    assert emotions["reward"] == pytest.approx(0.4)
-    assert emotions["aversion"] == pytest.approx(0.0)
+def test_compute_emotions_reads_each_state_from_its_own_population():
+    emotions = compute_emotions({"reward": 0.15, "aversion": 0.05, "arousal": 0.10}, CALIBRATIONS)
+    assert emotions == pytest.approx({"reward": 0.5, "aversion": 0.0, "arousal": 0.25})
 
 
-def test_compute_emotions_reads_negative_valence_as_aversion():
-    emotions = compute_emotions(valence=-0.7, arousal=0.0)
-    assert emotions["aversion"] == pytest.approx(0.7)
+def test_compute_emotions_shows_reward_and_aversion_together_when_both_populations_fire():
+    emotions = compute_emotions({"reward": 0.15, "aversion": 0.25, "arousal": 0.05}, CALIBRATIONS)
+    assert emotions["reward"] == pytest.approx(0.5)
+    assert emotions["aversion"] == pytest.approx(1.0)
+
+
+def test_compute_emotions_uses_each_populations_own_calibration():
+    calibrations = {**CALIBRATIONS, "aversion": PoolCalibration(resting_rate=0.0, peak_rate=0.1)}
+    emotions = compute_emotions({"reward": 0.05, "aversion": 0.05, "arousal": 0.05}, calibrations)
+    assert emotions["aversion"] == pytest.approx(0.5)
     assert emotions["reward"] == pytest.approx(0.0)
 
 
-def test_compute_emotions_shows_neither_reward_nor_aversion_at_neutral_valence():
-    emotions = compute_emotions(valence=0.0, arousal=0.0)
-    assert emotions["reward"] == pytest.approx(0.0)
-    assert emotions["aversion"] == pytest.approx(0.0)
-
-
-def test_compute_emotions_passes_arousal_through():
-    assert compute_emotions(valence=0.2, arousal=0.35)["arousal"] == pytest.approx(0.35)
+def test_emotions_to_valence_is_reward_minus_aversion():
+    assert emotions_to_valence({"reward": 0.6, "aversion": 0.2, "arousal": 0.9}) == pytest.approx(0.4)
 
 
 def test_compute_rating_at_zero_valence_returns_midpoint_five():

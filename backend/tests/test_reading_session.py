@@ -3,21 +3,19 @@ import math
 import pytest
 import torch
 
-from eternalfly.emotion_decoder import compute_emotions, compute_rating, pool_rates_to_valence_arousal
+from eternalfly.emotion_decoder import EMOTION_NAMES, PoolCalibration, compute_emotions, compute_rating, emotions_to_valence
 from eternalfly.lif import LIFParameters
-from eternalfly.reading_session import ReadingSession, ReadingSessionConfig
+from eternalfly.reading_session import ReadingSession, ReadingSessionConfig, TickResult
 
 NEURON_COUNT = 8
 ZERO_ADJACENCY = torch.zeros((NEURON_COUNT, NEURON_COUNT))
 POOL_INDICES = {
     "sensory_input": torch.tensor([0, 1], dtype=torch.int64),
-    "approach": torch.tensor([2], dtype=torch.int64),
-    "avoidance": torch.tensor([3], dtype=torch.int64),
-    "arousal": torch.tensor([4], dtype=torch.int64),
     "valence_positive": torch.tensor([5], dtype=torch.int64),
     "valence_negative": torch.tensor([6], dtype=torch.int64),
     "arousal_input": torch.tensor([7], dtype=torch.int64),
 }
+EMOTION_CALIBRATIONS = {name: PoolCalibration(resting_rate=0.0, peak_rate=1.0) for name in EMOTION_NAMES}
 LIF_PARAMETERS = LIFParameters(
     membrane_time_constant_ms=20.0,
     spike_threshold=1.0,
@@ -39,9 +37,7 @@ def _make_config(**overrides) -> ReadingSessionConfig:
         engagement_threshold=0.3,
         min_ticks_before_boredom_check=3,
         display_window_size=3,
-        positive_valence_ceiling=1.0,
-        negative_valence_ceiling=1.0,
-        arousal_ceiling=1.0,
+        emotion_calibrations=EMOTION_CALIBRATIONS,
         device="cpu",
     )
     defaults.update(overrides)
@@ -97,9 +93,8 @@ def test_tick_computes_emotions_and_rating_from_zero_pool_activity():
 
     tick_result = session.tick()
 
-    expected_valence, expected_arousal = pool_rates_to_valence_arousal(0.0, 0.0, 0.0, 1.0, 1.0, 1.0)
-    expected_emotions = compute_emotions(expected_valence, expected_arousal)
-    expected_rating = compute_rating(expected_valence)
+    expected_emotions = compute_emotions(dict.fromkeys(EMOTION_NAMES, 0.0), EMOTION_CALIBRATIONS)
+    expected_rating = compute_rating(emotions_to_valence(expected_emotions))
 
     assert tick_result.emotions == expected_emotions
     assert tick_result.rating_0_10 == pytest.approx(expected_rating)
@@ -337,10 +332,81 @@ def test_set_speed_multiplier_non_positive_raises_value_error():
 
 def test_pool_spike_rate_of_nan_is_never_produced_even_with_empty_pool():
     empty_pool_indices = dict(POOL_INDICES)
-    empty_pool_indices["approach"] = torch.tensor([], dtype=torch.int64)
+    empty_pool_indices["valence_positive"] = torch.tensor([], dtype=torch.int64)
     session = ReadingSession(NEURON_COUNT, ZERO_ADJACENCY, empty_pool_indices, ["hello"], _make_config(ticks_per_word=1))
 
     tick_result = session.tick()
 
     assert not math.isnan(tick_result.region_activity["approach"])
     assert tick_result.region_activity["approach"] == 0.0
+
+
+def _first_tick_with_strong_input(word: str) -> TickResult:
+    """The first tick of a one-word session whose input is strong enough to make every
+    excited neuron spike immediately."""
+    session = ReadingSession(
+        NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, [word], _make_config(ticks_per_word=1, input_current_scale=100.0, display_window_size=1)
+    )
+    return session.tick()
+
+
+def test_tick_reads_reward_from_the_reward_dopamine_neurons_a_positive_word_excites():
+    tick_result = _first_tick_with_strong_input("good")
+
+    assert tick_result.emotions["reward"] == pytest.approx(1.0)
+    assert tick_result.emotions["aversion"] == pytest.approx(0.0)
+    assert tick_result.region_activity["approach"] == pytest.approx(1.0)
+    assert tick_result.rating_0_10 == pytest.approx(10.0)
+
+
+def test_tick_reads_aversion_from_the_punishment_dopamine_neurons_a_negative_word_excites():
+    tick_result = _first_tick_with_strong_input("bad")
+
+    assert tick_result.emotions["aversion"] == pytest.approx(1.0)
+    assert tick_result.emotions["reward"] == pytest.approx(0.0)
+    assert tick_result.region_activity["avoidance"] == pytest.approx(1.0)
+    assert tick_result.rating_0_10 == pytest.approx(0.0)
+
+
+def test_tick_reads_arousal_from_the_octopamine_neurons_any_charged_word_excites():
+    tick_result = _first_tick_with_strong_input("bad")
+
+    assert tick_result.emotions["arousal"] == pytest.approx(1.0)
+    assert tick_result.region_activity["arousal"] == pytest.approx(1.0)
+
+
+def test_tick_shows_no_emotion_for_a_neutral_word():
+    tick_result = _first_tick_with_strong_input("table")
+
+    assert tick_result.emotions == {"reward": 0.0, "aversion": 0.0, "arousal": 0.0}
+    assert tick_result.rating_0_10 == pytest.approx(5.0)
+
+
+def test_session_logs_book_loads_restarts_pauses_and_speed_changes(caplog):
+    session = ReadingSession(NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["hello"], _make_config())
+
+    with caplog.at_level("INFO", logger="eternalfly.reading_session"):
+        session.load_new_text(["new", "book"])
+        session.restart()
+        session.set_paused(True)
+        session.set_paused(False)
+        session.set_speed_multiplier(2.5)
+
+    assert [record.getMessage() for record in caplog.records] == [
+        "new book loaded: 2 words",
+        "book restarted from its first word",
+        "reading paused",
+        "reading resumed",
+        "speed multiplier set to 2.5",
+    ]
+
+
+def test_tick_logs_each_finished_word_at_debug(caplog):
+    session = ReadingSession(NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["hello", "world"], _make_config(ticks_per_word=1))
+
+    with caplog.at_level("DEBUG", logger="eternalfly.word_activity_log"):
+        session.tick()
+        session.tick()
+
+    assert len(caplog.records) == 1
+    assert "'hello'" in caplog.records[0].getMessage()

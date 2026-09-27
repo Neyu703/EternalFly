@@ -6,6 +6,8 @@ composes already-tested eternalfly functions, mirrors cli_reading_demo.py's setu
 Run as `python -m scripts.run_server` (from backend/, as the Makefile does) so uvicorn's
 reload subprocess can re-import this module by its "scripts.run_server:app" name."""
 
+import logging
+import logging.handlers
 import os
 import sys
 from pathlib import Path
@@ -20,6 +22,7 @@ from eternalfly.lif import LIFParameters
 from eternalfly.reading_session import ReadingSession, ReadingSessionConfig
 from eternalfly.server import create_app
 from eternalfly.text_encoder import tokenize_text
+from scripts.emotion_calibration import EMOTION_CALIBRATIONS
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 CACHE_DIR = DATA_DIR / "cache"
@@ -45,14 +48,37 @@ CONTEXT_WORD_COUNT = 500  # how many recent words the boredom/engagement judgmen
 DISPLAY_WORD_COUNT = 10  # how many recent words the *displayed* rating/emotions/region_activity average over
 BASE_WORDS_PER_MINUTE = 60.0 / (TICKS_PER_WORD * TICK_INTERVAL_SECONDS)  # reading pace at speed_multiplier=1.0
 
-# The dopaminergic/octopaminergic pools are a few hundred neurons out of ~139k, so their
-# raw spike rates never get near 1.0 even under maximally extreme input - these are the
-# real achievable ceilings measured against the cached connectome (see
-# scripts/calibrate_sentiment.py), used to rescale valence/arousal into a full -1..1/0..1
-# range instead of a barely-moving sliver of it.
-POSITIVE_VALENCE_CEILING = 0.18
-NEGATIVE_VALENCE_CEILING = 0.03
-AROUSAL_CEILING = 0.08
+# Console log level (DEBUG adds one line per word read, see eternalfly.word_activity_log);
+# the log file below always records everything down to DEBUG.
+CONSOLE_LOG_LEVEL = os.environ.get("ETERNALFLY_LOG_LEVEL", "INFO").upper()
+LOG_FILE = Path(__file__).resolve().parent.parent / "logs" / "eternalfly.log"
+LOG_FILE_MAX_BYTES = 5_000_000
+LOG_FILE_BACKUP_COUNT = 3
+LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+
+logger = logging.getLogger("eternalfly.run_server")
+
+
+def configure_logging() -> None:
+    """Send eternalfly's log records to the console at CONSOLE_LOG_LEVEL and, at every
+    level, to the rotating LOG_FILE. Does nothing once configured: uvicorn's worker imports
+    this module twice (as multiprocessing's __mp_main__, then by name), and a second file
+    handler would keep the log file open and block its rotation on Windows."""
+    package_logger = logging.getLogger("eternalfly")
+    if package_logger.handlers:
+        return
+    LOG_FILE.parent.mkdir(exist_ok=True)
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(CONSOLE_LOG_LEVEL)
+    file_handler = logging.handlers.RotatingFileHandler(
+        LOG_FILE, maxBytes=LOG_FILE_MAX_BYTES, backupCount=LOG_FILE_BACKUP_COUNT, encoding="utf-8"
+    )
+    file_handler.setLevel(logging.DEBUG)
+    package_logger.setLevel(logging.DEBUG)
+    package_logger.propagate = False
+    package_logger.handlers = [console_handler, file_handler]
+    for handler in package_logger.handlers:
+        handler.setFormatter(logging.Formatter(LOG_FORMAT))
 
 
 def load_adjacency_as_torch_sparse(device: str) -> torch.Tensor:
@@ -95,16 +121,23 @@ def build_session() -> ReadingSession:
         engagement_threshold=0.15,
         min_ticks_before_boredom_check=CONTEXT_WORD_COUNT * TICKS_PER_WORD,
         display_window_size=DISPLAY_WORD_COUNT * TICKS_PER_WORD,
-        positive_valence_ceiling=POSITIVE_VALENCE_CEILING,
-        negative_valence_ceiling=NEGATIVE_VALENCE_CEILING,
-        arousal_ceiling=AROUSAL_CEILING,
+        emotion_calibrations=EMOTION_CALIBRATIONS,
         device=device,
     )
+    logger.info(
+        "neuron pools: %s",
+        ", ".join(f"{name} {len(indices)} neurons" for name, indices in pool_indices.items()),
+    )
+    logger.info("emotion calibrations: %s", EMOTION_CALIBRATIONS)
     return ReadingSession(
         adjacency_matrix.shape[0], adjacency_matrix, pool_indices, tokens, config, neuropil_pool_indices
     )
 
 
+# Only in uvicorn's worker, which imports this module by name: the reloading parent process
+# (run as __main__) must not hold the log file open too, or rotating it fails on Windows.
+if __name__ != "__main__":
+    configure_logging()
 app = create_app(
     build_session(),
     tick_interval_seconds=TICK_INTERVAL_SECONDS,

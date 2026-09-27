@@ -56,3 +56,29 @@ def select_pool_by_activity(
     selected_neuron_count = max(1, round(top_fraction * len(neuron_ids)))
 
     return neuron_ids[descending_order[:selected_neuron_count]]
+
+
+def keep_shared_neurons_in_majority_pool(
+    pool_candidates: dict[str, tuple[numpy.ndarray, numpy.ndarray]],
+) -> dict[str, tuple[numpy.ndarray, numpy.ndarray]]:
+    """Make pools disjoint: pool_candidates maps each pool name to parallel (neuron_ids,
+    counts) arrays, and a neuron listed in several pools stays only in the pool where its
+    count is highest (ties go to the pool listed first). Returns the same shape, with each
+    pool's arrays filtered in their original order.
+
+    Used for the dopaminergic valence pools: a dopamine neuron with most of its output in
+    the reward-coding medial lobe and a few stray synapses in the punishment-coding
+    vertical lobe belongs to the reward pool only, so a negative word never excites it."""
+    majority_pool_by_neuron: dict[int, tuple[str, float]] = {}
+    for pool_name, (neuron_ids, counts) in pool_candidates.items():
+        for neuron_id, count in zip(neuron_ids.tolist(), counts.tolist()):
+            if neuron_id not in majority_pool_by_neuron or count > majority_pool_by_neuron[neuron_id][1]:
+                majority_pool_by_neuron[neuron_id] = (pool_name, count)
+
+    disjoint_pools = {}
+    for pool_name, (neuron_ids, counts) in pool_candidates.items():
+        is_kept = numpy.array(
+            [majority_pool_by_neuron[neuron_id][0] == pool_name for neuron_id in neuron_ids.tolist()], dtype=bool
+        )
+        disjoint_pools[pool_name] = (neuron_ids[is_kept], counts[is_kept])
+    return disjoint_pools

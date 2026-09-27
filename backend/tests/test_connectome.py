@@ -1,7 +1,7 @@
 import numpy
 import pytest
 
-from eternalfly.connectome import build_signed_adjacency, select_pool_by_activity
+from eternalfly.connectome import build_signed_adjacency, keep_shared_neurons_in_majority_pool, select_pool_by_activity
 
 
 def test_build_signed_adjacency_single_excitatory_connection():
@@ -103,3 +103,41 @@ def test_select_pool_by_activity_breaks_ties_by_original_array_position():
     selected_neuron_ids = select_pool_by_activity(neuron_ids, activity_counts, top_fraction=0.67)
 
     assert selected_neuron_ids.tolist() == [10, 20]
+
+
+def test_keep_shared_neurons_in_majority_pool_keeps_a_shared_neuron_only_where_its_count_is_highest():
+    pool_candidates = {
+        "reward": (numpy.array([1, 2, 3]), numpy.array([10, 1, 5])),
+        "punishment": (numpy.array([2, 3, 4]), numpy.array([9, 2, 7])),
+    }
+
+    disjoint_pools = keep_shared_neurons_in_majority_pool(pool_candidates)
+
+    assert disjoint_pools["reward"][0].tolist() == [1, 3]
+    assert disjoint_pools["reward"][1].tolist() == [10, 5]
+    assert disjoint_pools["punishment"][0].tolist() == [2, 4]
+    assert disjoint_pools["punishment"][1].tolist() == [9, 7]
+
+
+def test_keep_shared_neurons_in_majority_pool_breaks_ties_toward_the_first_pool():
+    pool_candidates = {
+        "reward": (numpy.array([5]), numpy.array([3])),
+        "punishment": (numpy.array([5]), numpy.array([3])),
+    }
+
+    disjoint_pools = keep_shared_neurons_in_majority_pool(pool_candidates)
+
+    assert disjoint_pools["reward"][0].tolist() == [5]
+    assert disjoint_pools["punishment"][0].tolist() == []
+
+
+def test_keep_shared_neurons_in_majority_pool_handles_an_empty_pool():
+    pool_candidates = {
+        "reward": (numpy.array([], dtype=numpy.int64), numpy.array([], dtype=numpy.int64)),
+        "punishment": (numpy.array([7]), numpy.array([1])),
+    }
+
+    disjoint_pools = keep_shared_neurons_in_majority_pool(pool_candidates)
+
+    assert disjoint_pools["reward"][0].tolist() == []
+    assert disjoint_pools["punishment"][0].tolist() == [7]

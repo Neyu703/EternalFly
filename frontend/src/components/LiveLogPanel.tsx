@@ -64,13 +64,13 @@ export function LiveLogPanel({ tick }: { tick: TickData }) {
                 <th scope="col" title="Dopamine rating (0–10)">
                   Dopamine
                 </th>
-                <th scope="col" title="Approach pool activity">
+                <th scope="col" title="Firing rate of the reward dopamine neurons (approach)">
                   Appr.
                 </th>
-                <th scope="col" title="Avoidance pool activity">
+                <th scope="col" title="Firing rate of the punishment dopamine neurons (avoidance)">
                   Avoid.
                 </th>
-                <th scope="col" title="Arousal pool activity">
+                <th scope="col" title="Arousal: octopamine neuron firing above rest">
                   Arous.
                 </th>
               </tr>

@@ -1,7 +1,11 @@
-"""Turns smoothed brain-region firing rates into the fly's emotional states and a 0-10
-rating."""
+"""Turns the smoothed firing rates of the fly brain's neuromodulatory populations into its
+emotional states and a 0-10 rating."""
 
 import collections
+from dataclasses import dataclass
+
+# The emotional states the simulated fly brain has circuits for (see compute_emotions).
+EMOTION_NAMES = ("reward", "aversion", "arousal")
 
 
 class RollingAverage:
@@ -30,47 +34,41 @@ class RollingAverage:
         return self._running_sum / len(self._window)
 
 
-def pool_rates_to_valence_arousal(
-    approach_pool_rate: float,
-    avoidance_pool_rate: float,
-    arousal_pool_rate: float,
-    positive_valence_ceiling: float,
-    negative_valence_ceiling: float,
-    arousal_ceiling: float,
-) -> tuple[float, float]:
-    """Convert approach/avoidance/arousal pool firing rates into a (valence, arousal)
-    coordinate pair, rescaled to [-1.0, 1.0] / [0.0, 1.0] against the network's own
-    calibrated ceilings (see scripts/calibrate_sentiment.py) rather than the raw pool
-    rates directly.
+@dataclass(frozen=True)
+class PoolCalibration:
+    """Spike rates of one neuromodulatory population measured on the real connectome (see
+    scripts/calibrate_sentiment.py): resting_rate while the fly reads emotionally neutral
+    text, peak_rate while it reads the most strongly charged text."""
 
-    The raw approach-minus-avoidance difference and raw arousal-pool rate only ever
-    span a tiny sliver of their nominal range even under maximally extreme input (the
-    dopaminergic/octopaminergic pools are a few hundred neurons out of ~139k, with
-    spike rates bounded well under 1.0), so feeding them unscaled into compute_rating/
-    compute_emotions makes the display barely move. positive_valence_ceiling and
-    negative_valence_ceiling (both non-negative magnitudes) are the raw
-    approach-minus-avoidance value that should map to +1.0 / -1.0 respectively (the
-    positive and negative dopaminergic pools differ in size, so their ceilings differ
-    too); arousal_ceiling is the raw arousal_pool_rate that should map to 1.0. Values
-    beyond a ceiling clamp to +-1.0 / 1.0 rather than exceeding it."""
-    raw_valence = approach_pool_rate - avoidance_pool_rate
-    if raw_valence >= 0:
-        valence = min(1.0, raw_valence / positive_valence_ceiling) if positive_valence_ceiling > 0 else 0.0
-    else:
-        valence = max(-1.0, raw_valence / negative_valence_ceiling) if negative_valence_ceiling > 0 else 0.0
-    arousal = max(0.0, min(1.0, arousal_pool_rate / arousal_ceiling)) if arousal_ceiling > 0 else 0.0
-    return (valence, arousal)
+    resting_rate: float
+    peak_rate: float
 
 
-def compute_emotions(valence: float, arousal: float) -> dict[str, float]:
+def rate_above_rest(rate: float, calibration: PoolCalibration) -> float:
+    """How far rate has risen from the population's resting rate toward its peak rate, as
+    0..1 (clamped). The population's spontaneous, network-driven firing is its resting
+    state rather than an emotion, so it maps to 0. Returns 0.0 for a calibration whose
+    peak is not above its resting rate."""
+    span = calibration.peak_rate - calibration.resting_rate
+    if span <= 0:
+        return 0.0
+    return max(0.0, min(1.0, (rate - calibration.resting_rate) / span))
+
+
+def compute_emotions(pool_rates: dict[str, float], calibrations: dict[str, PoolCalibration]) -> dict[str, float]:
     """Return the intensities (0..1) of the only emotional states the simulated fly brain
-    actually has circuits for, instead of human emotion categories projected onto it:
-    reward (the reward-coding PAM dopamine neurons of the mushroom body's medial lobe
-    outweighing the punishment side, i.e. positive valence), aversion (the punishment-
-    coding PPL1 dopamine neurons of its vertical lobe outweighing the reward side,
-    negative valence) and arousal (the octopamine neurons driving the central complex).
-    Expects valence in [-1, 1] and arousal in [0, 1] (see pool_rates_to_valence_arousal)."""
-    return {"reward": max(0.0, valence), "aversion": max(0.0, -valence), "arousal": arousal}
+    actually has circuits for, instead of human emotion categories projected onto it, each
+    read straight from its own population's firing above rest: reward (the reward-coding
+    PAM dopamine neurons of the mushroom body's medial lobe), aversion (the punishment-
+    coding PPL1 dopamine neurons of its vertical lobe) and arousal (the octopamine neurons
+    driving the central complex). pool_rates and calibrations are keyed by those three
+    names; reward and aversion are independent, so mixed passages can show both."""
+    return {name: rate_above_rest(pool_rates[name], calibrations[name]) for name in EMOTION_NAMES}
+
+
+def emotions_to_valence(emotions: dict[str, float]) -> float:
+    """Net valence in [-1, 1]: reward minus aversion (feeds compute_rating)."""
+    return emotions["reward"] - emotions["aversion"]
 
 
 def compute_rating(valence: float) -> float:
