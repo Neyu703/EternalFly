@@ -46,6 +46,18 @@ function toTickData(raw: RawTick): TickData {
 // How long to wait before reconnecting after the connection drops.
 const RECONNECT_DELAY_MS = 1000;
 
+/** Closes a socket that's no longer wanted. One still connecting (e.g. StrictMode's
+ * discarded first mount) is closed as soon as it opens instead: closing it mid-handshake
+ * makes the browser warn that it closed before the connection was established. */
+function closeSocket(socket: WebSocket): void {
+  if (socket.readyState === WebSocket.CONNECTING) {
+    socket.onopen = () => socket.close();
+    socket.onmessage = null;
+  } else {
+    socket.close();
+  }
+}
+
 /**
  * Connects to the real eternalfly WebSocket server and returns the latest tick (or `null`
  * before the first message has arrived), whether the socket is currently open, and a
@@ -96,7 +108,7 @@ export function useWebSocketTickData(url: string): {
     return () => {
       stopped = true;
       if (reconnectTimeoutId) clearTimeout(reconnectTimeoutId);
-      socket?.close();
+      if (socket) closeSocket(socket);
     };
   }, [url]);
 
