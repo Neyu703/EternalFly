@@ -183,6 +183,49 @@ def _build_tiny_epub(epub_path):
     ebooklib.epub.write_epub(str(epub_path), book)
 
 
+def _html_document(file_name, body, head_title="Page"):
+    """An EPUB content document with the given body markup and <head> title."""
+    document = ebooklib.epub.EpubHtml(title=head_title, file_name=file_name, lang="en")
+    document.content = f"<html><head><title>{head_title}</title></head><body>{body}</body></html>"
+    return document
+
+
+def _build_epub_with_front_matter(epub_path):
+    """Write an EPUB whose spine opens with a title page, a copyright page and a table of
+    contents before two chapters and a non-linear footnotes page. The manifest lists
+    chapter two before chapter one; the spine has them in reading order."""
+    book = ebooklib.epub.EpubBook()
+    book.set_identifier("front-matter-test")
+    book.set_title("Front Matter Test")
+    book.set_language("en")
+
+    title_page = _html_document("title.xhtml", "<h1>The Dragon Book</h1><p>A Novel</p>")
+    copyright_page = _html_document("copyright.xhtml", "<p>Copyright © 2024. All rights reserved.</p>")
+    contents_page = _html_document("contents.xhtml", "<h1>Contents</h1><p>Chapter One, Chapter Two</p>")
+    chapter_one = _html_document(
+        "chapter_one.xhtml",
+        "<h1>Chapter One</h1><svg><desc>cover-art-url</desc></svg><p>The dragon flew over the castle.</p>",
+        head_title="HeadTitle",
+    )
+    chapter_two = _html_document("chapter_two.xhtml", "<h1>Chapter Two</h1><p>Sunlit meadows stretched onward.</p>")
+    footnotes = _html_document("notes.xhtml", "<p>Footnote about dragons.</p>")
+    for item in (title_page, copyright_page, contents_page, chapter_two, chapter_one, footnotes):
+        book.add_item(item)
+
+    book.toc = (
+        ebooklib.epub.Link("title.xhtml", "Title Page", "title"),
+        ebooklib.epub.Link("copyright.xhtml", "Copyright", "copyright"),
+        ebooklib.epub.Link("contents.xhtml", "Contents", "contents"),
+        ebooklib.epub.Link("chapter_one.xhtml", "Chapter One", "one"),
+        ebooklib.epub.Link("chapter_two.xhtml", "Chapter Two", "two"),
+    )
+    book.add_item(ebooklib.epub.EpubNcx())
+    book.add_item(ebooklib.epub.EpubNav())
+    book.spine = [title_page, copyright_page, contents_page, chapter_one, chapter_two, (footnotes, "no")]
+
+    ebooklib.epub.write_epub(str(epub_path), book)
+
+
 def test_extract_epub_text_returns_concatenated_plain_text_from_all_documents(tmp_path):
     epub_path = tmp_path / "tiny.epub"
     _build_tiny_epub(epub_path)
@@ -191,6 +234,104 @@ def test_extract_epub_text_returns_concatenated_plain_text_from_all_documents(tm
 
     assert "The dragon flew over the castle." in extracted_text
     assert "Sunlit meadows stretched onward." in extracted_text
+
+
+def test_extract_epub_text_starts_at_the_first_chapter_skipping_front_matter(tmp_path):
+    epub_path = tmp_path / "front_matter.epub"
+    _build_epub_with_front_matter(epub_path)
+
+    extracted_text = extract_epub_text(epub_path)
+
+    assert extracted_text.split()[:2] == ["Chapter", "One"]
+    assert "A Novel" not in extracted_text
+    assert "All rights reserved" not in extracted_text
+
+
+def test_extract_epub_text_follows_the_spine_order_not_the_manifest_order(tmp_path):
+    epub_path = tmp_path / "front_matter.epub"
+    _build_epub_with_front_matter(epub_path)
+
+    extracted_text = extract_epub_text(epub_path)
+
+    assert extracted_text.index("The dragon flew") < extracted_text.index("Sunlit meadows")
+
+
+def test_extract_epub_text_leaves_out_page_titles_svg_descriptions_and_non_linear_pages(tmp_path):
+    epub_path = tmp_path / "front_matter.epub"
+    _build_epub_with_front_matter(epub_path)
+
+    extracted_text = extract_epub_text(epub_path)
+
+    assert "HeadTitle" not in extracted_text
+    assert "cover-art-url" not in extracted_text
+    assert "Footnote" not in extracted_text
+
+
+def _build_fan_fiction_epub(epub_path):
+    """Write an EPUB with one Archive of Our Own style chapter: a summary, a notes pointer,
+    an epigraph blockquote inside the story, and end notes."""
+    book = ebooklib.epub.EpubBook()
+    book.set_identifier("fan-fiction-test")
+    book.set_title("Fan Fiction Test")
+    book.set_language("en")
+    chapter = _html_document(
+        "chapter_one.xhtml",
+        '<div id="chapters"><div><h2 class="heading">Chapter 1</h2>'
+        '<p>Chapter Summary</p><blockquote class="userstuff"><p>Summary text here.</p></blockquote>'
+        '<p>Chapter Notes</p><div class="endnote-link">See the end of the chapter for <a href="#endnotes1">notes</a></div>'
+        "</div>"
+        '<div class="userstuff2"><blockquote><p>Quoted epigraph.</p></blockquote><p>The dragon flew over the castle.</p></div>'
+        '<div id="endnotes1"><p>Chapter End Notes</p><blockquote class="userstuff"><p>Thanks for reading!</p></blockquote></div>'
+        "</div>",
+    )
+    book.add_item(chapter)
+    book.toc = (ebooklib.epub.Link("chapter_one.xhtml", "Chapter 1", "one"),)
+    book.add_item(ebooklib.epub.EpubNcx())
+    book.add_item(ebooklib.epub.EpubNav())
+    book.spine = [chapter]
+    ebooklib.epub.write_epub(str(epub_path), book)
+
+
+def test_extract_epub_text_leaves_out_fan_fiction_chapter_notes_and_summaries(tmp_path):
+    epub_path = tmp_path / "fan_fiction.epub"
+    _build_fan_fiction_epub(epub_path)
+
+    extracted_text = " ".join(extract_epub_text(epub_path).split())
+
+    assert extracted_text == "Chapter 1 Quoted epigraph. The dragon flew over the castle."
+
+
+def _build_omnibus_epub(epub_path):
+    """Write an EPUB whose nested table of contents groups the first book's chapter under
+    a book entry pointing at that book's title page, with a warning page in between."""
+    book = ebooklib.epub.EpubBook()
+    book.set_identifier("omnibus-test")
+    book.set_title("Omnibus Test")
+    book.set_language("en")
+    book_title_page = _html_document("book_one.xhtml", "<h1>Book One: The Red Pyramid</h1>")
+    warning_page = _html_document("warning.xhtml", "<p>This is a transcript of an audio recording.</p>")
+    chapter_one = _html_document("chapter_one.xhtml", "<h1>1. A Death at the Needle</h1><p>We only have a few hours.</p>")
+    for item in (book_title_page, warning_page, chapter_one):
+        book.add_item(item)
+    book.toc = (
+        (
+            ebooklib.epub.Section("The Kane Chronicles Book 1 The Red Pyramid", href="book_one.xhtml"),
+            (ebooklib.epub.Link("chapter_one.xhtml", "1. A Death at the Needle", "one"),),
+        ),
+    )
+    book.add_item(ebooklib.epub.EpubNcx())
+    book.add_item(ebooklib.epub.EpubNav())
+    book.spine = [book_title_page, warning_page, chapter_one]
+    ebooklib.epub.write_epub(str(epub_path), book)
+
+
+def test_extract_epub_text_steps_into_a_book_entry_that_groups_its_chapters(tmp_path):
+    epub_path = tmp_path / "omnibus.epub"
+    _build_omnibus_epub(epub_path)
+
+    extracted_text = " ".join(extract_epub_text(epub_path).split())
+
+    assert extracted_text == "1. A Death at the Needle We only have a few hours."
 
 
 def test_read_text_file_reads_utf8_file_contents(tmp_path):
@@ -205,6 +346,14 @@ def test_load_and_tokenize_file_tokenizes_a_txt_file(tmp_path):
     text_path.write_text("The dragon flew.", encoding="utf-8")
 
     assert load_and_tokenize_file(text_path) == ["the", "dragon", "flew"]
+
+
+def test_load_and_tokenize_file_starts_a_txt_file_at_its_first_chapter(tmp_path):
+    text_path = tmp_path / "story.txt"
+    chapter_text = " ".join(["dragon"] * 60)
+    text_path.write_text(f"Copyright 2024\nAll rights reserved\n\nChapter 1\n{chapter_text}", encoding="utf-8")
+
+    assert load_and_tokenize_file(text_path)[:3] == ["chapter", "1", "dragon"]
 
 
 def test_load_and_tokenize_file_dispatches_on_uppercase_txt_suffix(tmp_path):

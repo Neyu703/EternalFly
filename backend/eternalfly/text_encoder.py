@@ -7,13 +7,18 @@ import string
 import ebooklib
 import ebooklib.epub
 import numpy
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 
 from eternalfly.sentiment_lexicon import word_valence
+from eternalfly.story_start import SpineDocument, TocEntry, plain_text_story, story_start_index
 
 # Half-width of the per-neuron random noise added to every token's currents (see
 # project_token_to_currents) — purely a texture/diversity signal, carries no sentiment.
 NOISE_HALF_WIDTH = 0.15
+
+# Labels Archive of Our Own puts on a chapter's author notes and summary; the note itself
+# follows in a blockquote.
+FAN_FICTION_NOTE_LABELS = {"chapter summary", "chapter notes", "chapter end notes"}
 
 
 def tokenize_text(raw_text: str) -> list[str]:
@@ -76,14 +81,69 @@ def project_arousal_to_currents(token: str, pool_size: int, current_scale: float
 
 
 def extract_epub_text(epub_path: pathlib.Path) -> str:
-    """Read an epub file and return its plain text, stripped of HTML tags, with all
-    document items joined by a space in the epub's item order."""
+    """Read an epub file and return the plain text of its documents in reading (spine)
+    order, joined by a space, starting where the story begins: cover, title and copyright
+    pages, table of contents, dedication and other front matter are left out (see
+    story_start), as are non-linear pages, page titles and SVG image descriptions."""
     book = ebooklib.epub.read_epub(str(epub_path))
-    document_texts = [
-        BeautifulSoup(document_item.get_content(), "html.parser").get_text(separator=" ")
-        for document_item in book.get_items_of_type(ebooklib.ITEM_DOCUMENT)
-    ]
-    return " ".join(document_texts)
+    documents = _spine_documents(book)
+    start_index = story_start_index(_flatten_toc(book.toc), documents)
+    return " ".join(document.text for document in documents[start_index:])
+
+
+def _spine_documents(book: ebooklib.epub.EpubBook) -> list[SpineDocument]:
+    """The book's linear content documents in reading order (navigation documents, which
+    are tables of contents, excluded)."""
+    documents = []
+    for item_id, linear in book.spine:
+        item = book.get_item_with_id(item_id)
+        if item is not None and linear != "no" and item.get_type() == ebooklib.ITEM_DOCUMENT:
+            documents.append(_spine_document(item))
+    return documents
+
+
+def _spine_document(item: ebooklib.epub.EpubItem) -> SpineDocument:
+    """One content document's first heading and the visible text of its body."""
+    document_soup = BeautifulSoup(item.get_content(), "html.parser")
+    body = document_soup.body or document_soup
+    for hidden_element in body.find_all(["svg", "script", "style", "noscript"]):
+        hidden_element.decompose()
+    _remove_fan_fiction_notes(body)
+    heading = body.find(["h1", "h2", "h3", "h4", "h5", "h6"])
+    return SpineDocument(
+        name=item.get_name(),
+        heading=heading.get_text(" ", strip=True) if heading else "",
+        text=body.get_text(separator=" "),
+    )
+
+
+def _remove_fan_fiction_notes(body: Tag) -> None:
+    """Removes Archive of Our Own author notes and summaries from a chapter, in place: each
+    labelled note ("Chapter Summary", "Chapter Notes", "Chapter End Notes") together with
+    the blockquote holding it, and the "See the end of the chapter for notes" pointers."""
+    for notes_pointer in body.find_all("div", class_="endnote-link"):
+        notes_pointer.decompose()
+    for label in body.find_all(["p", "h3", "h4", "h5", "h6"]):
+        if label.decomposed or label.get_text(" ", strip=True).lower() not in FAN_FICTION_NOTE_LABELS:
+            continue
+        note = label.find_next_sibling()
+        if note is not None and note.name == "blockquote":
+            note.decompose()
+        label.decompose()
+
+
+def _flatten_toc(toc_items) -> list[TocEntry]:
+    """The book's table of contents as one list in reading order; entries that group others
+    (ebooklib's (Section, children) pairs) are marked as having children."""
+    entries = []
+    for toc_item in toc_items:
+        if isinstance(toc_item, tuple):
+            section, children = toc_item
+            entries.append(TocEntry(section.title, getattr(section, "href", "") or "", has_children=True))
+            entries.extend(_flatten_toc(children))
+        else:
+            entries.append(TocEntry(toc_item.title, toc_item.href))
+    return entries
 
 
 def read_text_file(text_path: pathlib.Path) -> str:
@@ -92,13 +152,14 @@ def read_text_file(text_path: pathlib.Path) -> str:
 
 
 def load_and_tokenize_file(file_path: pathlib.Path) -> list[str]:
-    """Read file_path (.epub or .txt, case-insensitive) and return its tokenized text.
-    Raises ValueError for any other suffix, and FileNotFoundError if the file is missing."""
+    """Read file_path (.epub or .txt, case-insensitive) and return the tokenized text of its
+    story, from the first chapter on. Raises ValueError for any other suffix, and
+    FileNotFoundError if the file is missing."""
     suffix = file_path.suffix.lower()
     if suffix == ".epub":
         raw_text = extract_epub_text(file_path)
     elif suffix == ".txt":
-        raw_text = read_text_file(file_path)
+        raw_text = plain_text_story(read_text_file(file_path))
     else:
         raise ValueError(f"Unsupported file type: {file_path.suffix}")
     return tokenize_text(raw_text)
