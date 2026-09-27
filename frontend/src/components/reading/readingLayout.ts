@@ -75,7 +75,35 @@ export function lineWordBoxes(spreadIndex: number, side: PageSide, lineIndex: nu
     });
 }
 
-/** The rectangle of the word at the given reading position. */
-export function wordBoxAt(position: ReadingPosition): WordBox {
-    return lineWordBoxes(position.spreadIndex, position.side, position.lineIndex)[position.wordIndex];
+/** The word under a fractional word index: between two words of a line it slides from
+ * one to the next; at a line's last word it holds until the next line begins. */
+export function wordBoxAtIndex(wordIndex: number): WordBox {
+    const position = readingPositionOf(wordIndex);
+    const lineBoxes = lineWordBoxes(position.spreadIndex, position.side, position.lineIndex);
+    const current = lineBoxes[position.wordIndex];
+    const next = lineBoxes[position.wordIndex + 1];
+    const fraction = wordIndex - Math.floor(wordIndex);
+    if (!next || fraction === 0) return current;
+    return {
+        centerX: current.centerX + (next.centerX - current.centerX) * fraction,
+        centerZ: current.centerZ,
+        width: current.width + (next.width - current.width) * fraction,
+    };
+}
+
+/** The whole line holding the word at wordIndex, as one box spanning the text block. */
+export function lineBoxAtIndex(wordIndex: number): WordBox {
+    const position = readingPositionOf(wordIndex);
+    const width = TEXT_OUTER_X - TEXT_INNER_X;
+    return {
+        centerX: textStartX(position.side) + width / 2,
+        centerZ: TEXT_TOP_Z + (position.lineIndex + 0.5) * LINE_SPACING_Z,
+        width,
+    };
+}
+
+/** Word index of the last word on the line holding wordIndex. */
+export function lineEndIndex(wordIndex: number): number {
+    const wholeIndex = Math.floor(wordIndex);
+    return wholeIndex - readingPositionOf(wholeIndex).wordIndex + WORDS_PER_LINE - 1;
 }
