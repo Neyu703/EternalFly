@@ -12,13 +12,18 @@ logger = logging.getLogger(__name__)
 SUMMARY_WORD_COUNT = 100
 
 
+def _zero_per_emotion() -> dict[str, float]:
+    """A fresh running total of 0.0 per emotion name."""
+    return dict.fromkeys(EMOTION_NAMES, 0.0)
+
+
 @dataclass
 class _WordActivity:
     """Raw population rates summed over one word's ticks, plus what was shown at its end."""
 
     word_index: int
     word: str
-    rate_sums: dict[str, float] = field(default_factory=lambda: dict.fromkeys(EMOTION_NAMES, 0.0))
+    rate_sums: dict[str, float] = field(default_factory=_zero_per_emotion)
     tick_count: int = 0
     emotions: dict[str, float] = field(default_factory=dict)
     rating: float = 0.0
@@ -35,7 +40,7 @@ class _SummaryWindow:
     word_count: int = 0
     first_word_index: int = 0
     last_word_index: int = 0
-    emotion_sums: dict[str, float] = field(default_factory=lambda: dict.fromkeys(EMOTION_NAMES, 0.0))
+    emotion_sums: dict[str, float] = field(default_factory=_zero_per_emotion)
     rating_sum: float = 0.0
     strongest_word_by_emotion: dict[str, tuple[str, float]] = field(default_factory=dict)
 
@@ -68,8 +73,7 @@ class WordActivityLog:
         closes the last word) at word_index, with the tick's raw population rates and the
         displayed emotions and rating."""
         if self._current_word is not None and self._current_word.word_index != word_index:
-            self._finish_word(self._current_word)
-            self._current_word = None
+            self._finish_current_word()
         if word is None:
             return
         if self._current_word is None:
@@ -84,8 +88,16 @@ class WordActivityLog:
         """Log the word being read and the partial summary of the words since the last
         summary, so neither runs on into the next book (or the restarted one)."""
         if self._current_word is not None:
-            self._finish_word(self._current_word)
-            self._current_word = None
+            self._finish_current_word()
+        self._flush_summary()
+
+    def _finish_current_word(self) -> None:
+        """Log the word being read, add it to the running summary and forget it."""
+        self._finish_word(self._current_word)
+        self._current_word = None
+
+    def _flush_summary(self) -> None:
+        """Log the summary of the words since the last one, if any, and start a new one."""
         if self._summary.word_count > 0:
             self._log_summary()
         self._summary = _SummaryWindow()
@@ -119,8 +131,7 @@ class WordActivityLog:
                 summary.strongest_word_by_emotion[name] = (word_activity.word, mean_rates[name])
         summary.last_word_index = word_activity.word_index
         if summary.word_count == self._summary_word_count:
-            self._log_summary()
-            self._summary = _SummaryWindow()
+            self._flush_summary()
 
     def _log_summary(self) -> None:
         """Log the averages and strongest words of the full summary window."""

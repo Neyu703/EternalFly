@@ -11,14 +11,19 @@ import pathlib
 import sqlite3
 from dataclasses import dataclass
 
+from eternalfly.text_encoder import SUPPORTED_BOOK_SUFFIXES
+
 # Calibre's global settings file inside its config directory (%APPDATA%\calibre on Windows).
 CALIBRE_SETTINGS_FILE_NAME = "global.py.json"
+
+# Calibre's format names for the book files EternalFly can read, most preferred first.
+PREFERRED_FORMATS = tuple(suffix.removeprefix(".").upper() for suffix in SUPPORTED_BOOK_SUFFIXES)
 
 
 @dataclass(frozen=True)
 class CalibreBook:
     """A single book available in a Calibre library, resolved to its best available
-    format file per the caller's preferred_formats order."""
+    format file in PREFERRED_FORMATS order."""
 
     book_id: int
     title: str
@@ -40,13 +45,10 @@ def configured_library_path(calibre_config_directory: pathlib.Path) -> pathlib.P
     return pathlib.Path(library_path) if isinstance(library_path, str) and library_path else None
 
 
-def list_books(
-    library_path: pathlib.Path,
-    preferred_formats: tuple[str, ...] = ("EPUB", "TXT"),
-) -> list[CalibreBook]:
+def list_books(library_path: pathlib.Path) -> list[CalibreBook]:
     """List books in the Calibre library at library_path, each resolved to the first
-    available format found in preferred_formats order. Books with none of the
-    preferred formats available are excluded. Raises FileNotFoundError if no
+    available format found in PREFERRED_FORMATS order. Books with none of those formats
+    available are excluded. Raises FileNotFoundError if no
     metadata.db exists at library_path. Never writes to the library."""
     db_path = library_path / "metadata.db"
     if not db_path.exists():
@@ -62,7 +64,7 @@ def list_books(
 
     calibre_books = []
     for book_id, title, book_path in books:
-        chosen_format = _pick_preferred_format(formats_by_book.get(book_id, []), preferred_formats)
+        chosen_format = _pick_preferred_format(formats_by_book.get(book_id, []))
         if chosen_format is None:
             continue
         format_name, data_name = chosen_format
@@ -104,13 +106,11 @@ def _fetch_formats_by_book(connection: sqlite3.Connection) -> dict[int, list[tup
     return formats_by_book
 
 
-def _pick_preferred_format(
-    available_formats: list[tuple[str, str]], preferred_formats: tuple[str, ...]
-) -> tuple[str, str] | None:
-    """Return the (format, data_name) pair for the first preferred format available,
-    or None if none of the preferred formats are present."""
+def _pick_preferred_format(available_formats: list[tuple[str, str]]) -> tuple[str, str] | None:
+    """Return the (format, data_name) pair for the first of PREFERRED_FORMATS available,
+    or None if none of them are present."""
     data_name_by_format = dict(available_formats)
-    for preferred_format in preferred_formats:
+    for preferred_format in PREFERRED_FORMATS:
         if preferred_format in data_name_by_format:
             return preferred_format, data_name_by_format[preferred_format]
     return None

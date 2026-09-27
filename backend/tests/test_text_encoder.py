@@ -1,15 +1,19 @@
+import zipfile
+
 import ebooklib.epub
 import numpy
 import pytest
+from epub_fixtures import html_document, write_test_epub
 
 from eternalfly.text_encoder import (
     NOISE_HALF_WIDTH,
+    SUPPORTED_BOOK_SUFFIXES,
     extract_epub_text,
+    extract_plain_text_story,
     load_and_tokenize_file,
     project_arousal_to_currents,
     project_token_to_currents,
     project_valence_to_currents,
-    read_text_file,
     tokenize_text,
 )
 
@@ -158,11 +162,6 @@ def test_project_arousal_to_currents_scales_with_arousal_weight():
 
 
 def _build_tiny_epub(epub_path):
-    book = ebooklib.epub.EpubBook()
-    book.set_identifier("test-id-123")
-    book.set_title("Tiny Test Book")
-    book.set_language("en")
-
     first_chapter = ebooklib.epub.EpubHtml(
         title="Chapter One", file_name="chapter_one.xhtml", lang="en"
     )
@@ -173,57 +172,38 @@ def _build_tiny_epub(epub_path):
     )
     second_chapter.content = "<html><body><p>Sunlit meadows stretched onward.</p></body></html>"
 
-    book.add_item(first_chapter)
-    book.add_item(second_chapter)
-    book.toc = (first_chapter, second_chapter)
-    book.add_item(ebooklib.epub.EpubNcx())
-    book.add_item(ebooklib.epub.EpubNav())
-    book.spine = ["nav", first_chapter, second_chapter]
-
-    ebooklib.epub.write_epub(str(epub_path), book)
-
-
-def _html_document(file_name, body, head_title="Page"):
-    """An EPUB content document with the given body markup and <head> title."""
-    document = ebooklib.epub.EpubHtml(title=head_title, file_name=file_name, lang="en")
-    document.content = f"<html><head><title>{head_title}</title></head><body>{body}</body></html>"
-    return document
+    chapters = [first_chapter, second_chapter]
+    write_test_epub(epub_path, "test-id-123", "Tiny Test Book", chapters, tuple(chapters), ["nav", *chapters])
 
 
 def _build_epub_with_front_matter(epub_path):
     """Write an EPUB whose spine opens with a title page, a copyright page and a table of
     contents before two chapters and a non-linear footnotes page. The manifest lists
     chapter two before chapter one; the spine has them in reading order."""
-    book = ebooklib.epub.EpubBook()
-    book.set_identifier("front-matter-test")
-    book.set_title("Front Matter Test")
-    book.set_language("en")
-
-    title_page = _html_document("title.xhtml", "<h1>The Dragon Book</h1><p>A Novel</p>")
-    copyright_page = _html_document("copyright.xhtml", "<p>Copyright © 2024. All rights reserved.</p>")
-    contents_page = _html_document("contents.xhtml", "<h1>Contents</h1><p>Chapter One, Chapter Two</p>")
-    chapter_one = _html_document(
+    title_page = html_document("title.xhtml", "<h1>The Dragon Book</h1><p>A Novel</p>")
+    copyright_page = html_document("copyright.xhtml", "<p>Copyright © 2024. All rights reserved.</p>")
+    contents_page = html_document("contents.xhtml", "<h1>Contents</h1><p>Chapter One, Chapter Two</p>")
+    chapter_one = html_document(
         "chapter_one.xhtml",
         "<h1>Chapter One</h1><svg><desc>cover-art-url</desc></svg><p>The dragon flew over the castle.</p>",
         head_title="HeadTitle",
     )
-    chapter_two = _html_document("chapter_two.xhtml", "<h1>Chapter Two</h1><p>Sunlit meadows stretched onward.</p>")
-    footnotes = _html_document("notes.xhtml", "<p>Footnote about dragons.</p>")
-    for item in (title_page, copyright_page, contents_page, chapter_two, chapter_one, footnotes):
-        book.add_item(item)
-
-    book.toc = (
-        ebooklib.epub.Link("title.xhtml", "Title Page", "title"),
-        ebooklib.epub.Link("copyright.xhtml", "Copyright", "copyright"),
-        ebooklib.epub.Link("contents.xhtml", "Contents", "contents"),
-        ebooklib.epub.Link("chapter_one.xhtml", "Chapter One", "one"),
-        ebooklib.epub.Link("chapter_two.xhtml", "Chapter Two", "two"),
+    chapter_two = html_document("chapter_two.xhtml", "<h1>Chapter Two</h1><p>Sunlit meadows stretched onward.</p>")
+    footnotes = html_document("notes.xhtml", "<p>Footnote about dragons.</p>")
+    write_test_epub(
+        epub_path,
+        "front-matter-test",
+        "Front Matter Test",
+        [title_page, copyright_page, contents_page, chapter_two, chapter_one, footnotes],
+        (
+            ebooklib.epub.Link("title.xhtml", "Title Page", "title"),
+            ebooklib.epub.Link("copyright.xhtml", "Copyright", "copyright"),
+            ebooklib.epub.Link("contents.xhtml", "Contents", "contents"),
+            ebooklib.epub.Link("chapter_one.xhtml", "Chapter One", "one"),
+            ebooklib.epub.Link("chapter_two.xhtml", "Chapter Two", "two"),
+        ),
+        [title_page, copyright_page, contents_page, chapter_one, chapter_two, (footnotes, "no")],
     )
-    book.add_item(ebooklib.epub.EpubNcx())
-    book.add_item(ebooklib.epub.EpubNav())
-    book.spine = [title_page, copyright_page, contents_page, chapter_one, chapter_two, (footnotes, "no")]
-
-    ebooklib.epub.write_epub(str(epub_path), book)
 
 
 def test_extract_epub_text_returns_concatenated_plain_text_from_all_documents(tmp_path):
@@ -270,11 +250,7 @@ def test_extract_epub_text_leaves_out_page_titles_svg_descriptions_and_non_linea
 def _build_fan_fiction_epub(epub_path):
     """Write an EPUB with one Archive of Our Own style chapter: a summary, a notes pointer,
     an epigraph blockquote inside the story, and end notes."""
-    book = ebooklib.epub.EpubBook()
-    book.set_identifier("fan-fiction-test")
-    book.set_title("Fan Fiction Test")
-    book.set_language("en")
-    chapter = _html_document(
+    chapter = html_document(
         "chapter_one.xhtml",
         '<div id="chapters"><div><h2 class="heading">Chapter 1</h2>'
         '<p>Chapter Summary</p><blockquote class="userstuff"><p>Summary text here.</p></blockquote>'
@@ -284,12 +260,8 @@ def _build_fan_fiction_epub(epub_path):
         '<div id="endnotes1"><p>Chapter End Notes</p><blockquote class="userstuff"><p>Thanks for reading!</p></blockquote></div>'
         "</div>",
     )
-    book.add_item(chapter)
-    book.toc = (ebooklib.epub.Link("chapter_one.xhtml", "Chapter 1", "one"),)
-    book.add_item(ebooklib.epub.EpubNcx())
-    book.add_item(ebooklib.epub.EpubNav())
-    book.spine = [chapter]
-    ebooklib.epub.write_epub(str(epub_path), book)
+    toc = (ebooklib.epub.Link("chapter_one.xhtml", "Chapter 1", "one"),)
+    write_test_epub(epub_path, "fan-fiction-test", "Fan Fiction Test", [chapter], toc, [chapter])
 
 
 def test_extract_epub_text_leaves_out_fan_fiction_chapter_notes_and_summaries(tmp_path):
@@ -304,25 +276,17 @@ def test_extract_epub_text_leaves_out_fan_fiction_chapter_notes_and_summaries(tm
 def _build_omnibus_epub(epub_path):
     """Write an EPUB whose nested table of contents groups the first book's chapter under
     a book entry pointing at that book's title page, with a warning page in between."""
-    book = ebooklib.epub.EpubBook()
-    book.set_identifier("omnibus-test")
-    book.set_title("Omnibus Test")
-    book.set_language("en")
-    book_title_page = _html_document("book_one.xhtml", "<h1>Book One: The Red Pyramid</h1>")
-    warning_page = _html_document("warning.xhtml", "<p>This is a transcript of an audio recording.</p>")
-    chapter_one = _html_document("chapter_one.xhtml", "<h1>1. A Death at the Needle</h1><p>We only have a few hours.</p>")
-    for item in (book_title_page, warning_page, chapter_one):
-        book.add_item(item)
-    book.toc = (
+    book_title_page = html_document("book_one.xhtml", "<h1>Book One: The Red Pyramid</h1>")
+    warning_page = html_document("warning.xhtml", "<p>This is a transcript of an audio recording.</p>")
+    chapter_one = html_document("chapter_one.xhtml", "<h1>1. A Death at the Needle</h1><p>We only have a few hours.</p>")
+    documents = [book_title_page, warning_page, chapter_one]
+    toc = (
         (
             ebooklib.epub.Section("The Kane Chronicles Book 1 The Red Pyramid", href="book_one.xhtml"),
             (ebooklib.epub.Link("chapter_one.xhtml", "1. A Death at the Needle", "one"),),
         ),
     )
-    book.add_item(ebooklib.epub.EpubNcx())
-    book.add_item(ebooklib.epub.EpubNav())
-    book.spine = [book_title_page, warning_page, chapter_one]
-    ebooklib.epub.write_epub(str(epub_path), book)
+    write_test_epub(epub_path, "omnibus-test", "Omnibus Test", documents, toc, documents)
 
 
 def test_extract_epub_text_steps_into_a_book_entry_that_groups_its_chapters(tmp_path):
@@ -334,11 +298,38 @@ def test_extract_epub_text_steps_into_a_book_entry_that_groups_its_chapters(tmp_
     assert extracted_text == "1. A Death at the Needle We only have a few hours."
 
 
-def test_read_text_file_reads_utf8_file_contents(tmp_path):
+def test_extract_plain_text_story_reads_utf8_file_contents(tmp_path):
     text_path = tmp_path / "story.txt"
     text_path.write_text("The dragon soared over München.", encoding="utf-8")
 
-    assert read_text_file(text_path) == "The dragon soared over München."
+    assert extract_plain_text_story(text_path) == "The dragon soared over München."
+
+
+def test_supported_book_suffixes_list_epub_before_txt():
+    assert SUPPORTED_BOOK_SUFFIXES == (".epub", ".txt")
+
+
+def test_extract_epub_text_raises_value_error_for_a_file_that_is_not_a_zip_archive(tmp_path):
+    epub_path = tmp_path / "broken.epub"
+    epub_path.write_text("not a zip archive", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Not a readable EPUB: broken.epub"):
+        extract_epub_text(epub_path)
+
+
+def test_extract_epub_text_raises_value_error_when_the_manifest_names_a_missing_file(tmp_path):
+    epub_path = tmp_path / "incomplete.epub"
+    _build_tiny_epub(epub_path)
+    with zipfile.ZipFile(epub_path) as complete_archive:
+        entries = {name: complete_archive.read(name) for name in complete_archive.namelist()}
+    missing_document = next(name for name in entries if name.endswith("chapter_one.xhtml"))
+    with zipfile.ZipFile(epub_path, "w") as incomplete_archive:
+        for name, content in entries.items():
+            if name != missing_document:
+                incomplete_archive.writestr(name, content)
+
+    with pytest.raises(ValueError, match="Not a readable EPUB: incomplete.epub"):
+        extract_epub_text(epub_path)
 
 
 def test_load_and_tokenize_file_tokenizes_a_txt_file(tmp_path):

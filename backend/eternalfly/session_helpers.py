@@ -38,29 +38,15 @@ def inject_currents_at_indices(
     return full_currents
 
 
-def _validate_ticks_per_word(ticks_per_word: int) -> None:
-    """Raise ValueError unless ticks_per_word is a positive integer."""
-    if ticks_per_word <= 0:
-        raise ValueError(f"ticks_per_word must be a positive integer, got {ticks_per_word}")
-
-
 def is_new_word_tick(tick_number: int, ticks_per_word: int) -> bool:
     """Return True when tick_number starts a new word (including tick 0, the first word).
 
     A new word begins every ticks_per_word ticks. Raises ValueError if ticks_per_word
     is not a positive integer.
     """
-    _validate_ticks_per_word(ticks_per_word)
+    if ticks_per_word <= 0:
+        raise ValueError(f"ticks_per_word must be a positive integer, got {ticks_per_word}")
     return tick_number % ticks_per_word == 0
-
-
-def word_index_for_tick(tick_number: int, ticks_per_word: int) -> int:
-    """Return the 0-indexed word that is active at tick_number.
-
-    Raises ValueError if ticks_per_word is not a positive integer.
-    """
-    _validate_ticks_per_word(ticks_per_word)
-    return tick_number // ticks_per_word
 
 
 def spike_fraction_to_hz(spike_fraction: float, dt_ms: float) -> float:

@@ -1,14 +1,17 @@
 import asyncio
-import sqlite3
 import threading
 import time
+from dataclasses import asdict
 
 import ebooklib.epub
+import pytest
+from calibre_fixtures import create_calibre_library, dune_rows
+from epub_fixtures import write_test_epub
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from eternalfly.reading_session import TickResult
-from eternalfly.server import create_app, tick_result_to_json
+from eternalfly.server import create_app
 
 # Matches one of server.ALLOWED_ORIGINS.
 ORIGIN_HEADERS = {"origin": "http://localhost:5173"}
@@ -38,8 +41,8 @@ SAMPLE_TICK_RESULT = TickResult(
 )
 
 
-def test_tick_result_to_json_returns_dict_with_exact_keys_and_values():
-    result = tick_result_to_json(SAMPLE_TICK_RESULT)
+def test_tick_result_serializes_to_a_dict_with_exact_keys_and_values():
+    result = asdict(SAMPLE_TICK_RESULT)
 
     assert result == {
         "current_word": "hello",
@@ -56,6 +59,24 @@ def test_tick_result_to_json_returns_dict_with_exact_keys_and_values():
     }
 
 
+def _fake_tick_result(tick_count: int, book_finished: bool = False) -> TickResult:
+    """The TickResult a fake session returns on its tick_count-th tick: word and rating
+    count up with each tick; once book_finished, no word and full progress."""
+    return TickResult(
+        current_word=None if book_finished else f"word{tick_count}",
+        page_progress=1.0 if book_finished else 0.1 * tick_count,
+        words_read=tick_count,
+        total_words=10,
+        emotions=_ZERO_EMOTIONS,
+        rating_0_10=float(tick_count),
+        region_activity={"approach": 0.0, "avoidance": 0.0, "arousal": 0.0},
+        neuropil_activity={},
+        firing_rate_hz=0.0,
+        wants_new_book=False,
+        book_finished=book_finished,
+    )
+
+
 class FakeIncrementingSession:
     """Fake session whose successive tick() calls return distinguishably different results."""
 
@@ -70,18 +91,7 @@ class FakeIncrementingSession:
     def tick(self) -> TickResult:
         """Return a TickResult whose rating increases by one on each successive call."""
         self._tick_count += 1
-        return TickResult(
-            current_word=f"word{self._tick_count}",
-            page_progress=0.1 * self._tick_count,
-            words_read=self._tick_count,
-            total_words=10,
-            emotions=_ZERO_EMOTIONS,
-            rating_0_10=float(self._tick_count),
-            region_activity={"approach": 0.0, "avoidance": 0.0, "arousal": 0.0},
-            neuropil_activity={},
-            firing_rate_hz=0.0,
-            wants_new_book=False,
-        )
+        return _fake_tick_result(self._tick_count)
 
 
 def test_ws_first_message_matches_json_of_first_tick():
@@ -92,20 +102,7 @@ def test_ws_first_message_matches_json_of_first_tick():
     with client.websocket_connect("/ws") as websocket:
         first_message = websocket.receive_json()
 
-    assert first_message == tick_result_to_json(
-        TickResult(
-            current_word="word1",
-            page_progress=0.1,
-            words_read=1,
-            total_words=10,
-            emotions=_ZERO_EMOTIONS,
-            rating_0_10=1.0,
-            region_activity={"approach": 0.0, "avoidance": 0.0, "arousal": 0.0},
-            neuropil_activity={},
-            firing_rate_hz=0.0,
-            wants_new_book=False,
-        )
-    )
+    assert first_message == asdict(_fake_tick_result(1))
 
 
 def test_ws_second_message_reflects_second_tick_call_not_a_cached_first_result():
@@ -189,18 +186,9 @@ def test_load_book_endpoint_returns_ok_and_total_words_for_valid_txt_file(tmp_pa
 
 def test_load_book_endpoint_returns_ok_for_valid_epub_file(tmp_path):
     epub_path = tmp_path / "tiny.epub"
-    book = ebooklib.epub.EpubBook()
-    book.set_identifier("test-id-123")
-    book.set_title("Tiny Test Book")
-    book.set_language("en")
     chapter = ebooklib.epub.EpubHtml(title="Chapter One", file_name="chapter_one.xhtml", lang="en")
     chapter.content = "<html><body><p>Sunlit meadows.</p></body></html>"
-    book.add_item(chapter)
-    book.toc = (chapter,)
-    book.add_item(ebooklib.epub.EpubNcx())
-    book.add_item(ebooklib.epub.EpubNav())
-    book.spine = ["nav", chapter]
-    ebooklib.epub.write_epub(str(epub_path), book)
+    write_test_epub(epub_path, "test-id-123", "Tiny Test Book", [chapter], (chapter,), ["nav", chapter])
     fake_session = FakeSessionTrackingLoadNewText()
     client = make_client(create_app(fake_session))
 
@@ -294,27 +282,6 @@ def test_load_book_endpoint_does_not_block_the_event_loop_while_parsing(tmp_path
     assert not load_book_thread.is_alive()
 
 
-def _create_minimal_calibre_library(tmp_path):
-    """Build a minimal real Calibre-shaped metadata.db with a single EPUB book."""
-    library_path = tmp_path / "calibre_library"
-    library_path.mkdir()
-    connection = sqlite3.connect(library_path / "metadata.db")
-    connection.executescript(
-        """
-        CREATE TABLE books (id INTEGER PRIMARY KEY, title TEXT, path TEXT);
-        CREATE TABLE authors (id INTEGER PRIMARY KEY, name TEXT);
-        CREATE TABLE books_authors_link (book INTEGER, author INTEGER);
-        CREATE TABLE data (id INTEGER PRIMARY KEY, book INTEGER, format TEXT, name TEXT);
-        """
-    )
-    connection.execute("INSERT INTO books VALUES (1, 'Dune', 'Frank Herbert/Dune (1)')")
-    connection.execute("INSERT INTO authors VALUES (1, 'Frank Herbert')")
-    connection.execute("INSERT INTO books_authors_link VALUES (1, 1)")
-    connection.execute("INSERT INTO data VALUES (1, 1, 'EPUB', 'dune')")
-    connection.commit()
-    connection.close()
-    return library_path
-
 
 def test_calibre_books_endpoint_returns_empty_list_when_no_library_configured():
     fake_session = FakeSessionTrackingLoadNewText()
@@ -327,7 +294,7 @@ def test_calibre_books_endpoint_returns_empty_list_when_no_library_configured():
 
 
 def test_calibre_books_endpoint_returns_books_from_configured_library(tmp_path):
-    library_path = _create_minimal_calibre_library(tmp_path)
+    library_path = create_calibre_library(tmp_path / "calibre_library", *dune_rows("EPUB"))
     fake_session = FakeSessionTrackingLoadNewText()
     client = make_client(create_app(fake_session, calibre_library_path=library_path))
 
@@ -401,19 +368,7 @@ class FakeControllableSession:
         """Return a scripted TickResult, finished from self._finished_on_tick onward."""
         self._tick_count += 1
         book_finished = self._finished_on_tick is not None and self._tick_count >= self._finished_on_tick
-        return TickResult(
-            current_word=None if book_finished else f"word{self._tick_count}",
-            page_progress=1.0 if book_finished else 0.1 * self._tick_count,
-            words_read=self._tick_count,
-            total_words=10,
-            emotions=_ZERO_EMOTIONS,
-            rating_0_10=float(self._tick_count),
-            region_activity={"approach": 0.0, "avoidance": 0.0, "arousal": 0.0},
-            neuropil_activity={},
-            firing_rate_hz=0.0,
-            wants_new_book=False,
-            book_finished=book_finished,
-        )
+        return _fake_tick_result(self._tick_count, book_finished)
 
     def set_paused(self, paused: bool) -> None:
         """Record the requested paused state."""
@@ -465,15 +420,17 @@ def test_ws_set_paused_control_message_calls_session_set_paused():
     assert True in fake_session.paused_calls
 
 
-def test_ws_set_speed_multiplier_control_message_calls_session_set_speed_multiplier():
+def test_ws_keeps_applying_control_messages_after_an_invalid_one():
     fake_session = FakeControllableSession()
     client = make_client(create_app(fake_session, tick_interval_seconds=0))
 
     with client.websocket_connect("/ws") as websocket:
-        websocket.send_json({"type": "set_speed_multiplier", "value": 2.5})
-        _drain_websocket_until(websocket, lambda: 2.5 in fake_session.speed_multiplier_calls)
+        websocket.send_json({"type": "set_words_per_minute", "value": "fast"})
+        websocket.send_json({"type": "set_paused", "paused": True})
+        _drain_websocket_until(websocket, lambda: True in fake_session.paused_calls)
 
-    assert 2.5 in fake_session.speed_multiplier_calls
+    assert True in fake_session.paused_calls
+    assert fake_session.speed_multiplier_calls == []
 
 
 def test_ws_set_words_per_minute_control_message_converts_to_speed_multiplier():
@@ -514,28 +471,12 @@ def test_ws_autoplay_mode_restart_restarts_session_exactly_once_when_book_finish
 
 
 def _create_minimal_calibre_library_with_real_txt_book(tmp_path):
-    """Build a minimal real Calibre-shaped metadata.db whose single book is an actual
-    loadable .txt file on disk (unlike _create_minimal_calibre_library's placeholder
-    row), so autoplay shuffle can genuinely load it."""
-    library_path = tmp_path / "calibre_library"
+    """Build a minimal Calibre library whose single book is an actual loadable .txt file
+    on disk, so autoplay shuffle can genuinely load it."""
+    library_path = create_calibre_library(tmp_path / "calibre_library", *dune_rows("TXT"))
     book_dir = library_path / "Frank Herbert" / "Dune (1)"
     book_dir.mkdir(parents=True)
     (book_dir / "dune.txt").write_text("Fear is the mind killer.", encoding="utf-8")
-    connection = sqlite3.connect(library_path / "metadata.db")
-    connection.executescript(
-        """
-        CREATE TABLE books (id INTEGER PRIMARY KEY, title TEXT, path TEXT);
-        CREATE TABLE authors (id INTEGER PRIMARY KEY, name TEXT);
-        CREATE TABLE books_authors_link (book INTEGER, author INTEGER);
-        CREATE TABLE data (id INTEGER PRIMARY KEY, book INTEGER, format TEXT, name TEXT);
-        """
-    )
-    connection.execute("INSERT INTO books VALUES (1, 'Dune', 'Frank Herbert/Dune (1)')")
-    connection.execute("INSERT INTO authors VALUES (1, 'Frank Herbert')")
-    connection.execute("INSERT INTO books_authors_link VALUES (1, 1)")
-    connection.execute("INSERT INTO data VALUES (1, 1, 'TXT', 'dune')")
-    connection.commit()
-    connection.close()
     return library_path
 
 
@@ -561,3 +502,56 @@ def test_ws_autoplay_mode_shuffle_falls_back_to_restart_when_no_library_configur
 
     assert fake_session.restart_call_count == 1
     assert fake_session.received_tokens is None
+
+
+def test_ws_autoplay_mode_shuffle_falls_back_to_restart_when_the_chosen_book_is_corrupt(tmp_path):
+    library_path = create_calibre_library(tmp_path / "calibre_library", *dune_rows("EPUB"))
+    book_folder = library_path / "Frank Herbert" / "Dune (1)"
+    book_folder.mkdir(parents=True)
+    (book_folder / "dune.epub").write_text("not a zip archive", encoding="utf-8")
+    fake_session = FakeControllableSession(finished_on_tick=20)
+    client = make_client(create_app(fake_session, tick_interval_seconds=0, calibre_library_path=library_path))
+
+    with client.websocket_connect("/ws") as websocket:
+        websocket.send_json({"type": "set_autoplay_mode", "mode": "shuffle"})
+        _drain_websocket_until(websocket, lambda: fake_session.restart_call_count > 0)
+
+    assert fake_session.restart_call_count == 1
+    assert fake_session.received_tokens is None
+
+
+def test_ws_ignores_control_messages_of_unknown_type():
+    fake_session = FakeControllableSession()
+    client = make_client(create_app(fake_session, tick_interval_seconds=0))
+
+    with client.websocket_connect("/ws") as websocket:
+        websocket.send_json({"type": "set_colour", "value": "blue"})
+        websocket.send_json({"type": "set_paused", "paused": True})
+        _drain_websocket_until(websocket, lambda: True in fake_session.paused_calls)
+
+    assert fake_session.speed_multiplier_calls == []
+
+
+def test_ws_rejects_a_handshake_from_a_disallowed_origin():
+    client = TestClient(create_app(FakeControllableSession(), tick_interval_seconds=0), headers={"origin": "http://evil.example"})
+
+    with pytest.raises(WebSocketDisconnect) as disconnect:
+        with client.websocket_connect("/ws") as websocket:
+            websocket.receive_json()
+
+    assert disconnect.value.code == 1008
+
+
+def test_unsafe_request_from_a_disallowed_origin_is_forbidden():
+    client = TestClient(create_app(FakeControllableSession()), headers={"origin": "http://evil.example"})
+
+    response = client.post("/load-book", json={"path": "irrelevant.txt"})
+
+    assert response.status_code == 403
+
+
+def test_app_lifespan_passes_through_the_origin_check():
+    with TestClient(create_app(FakeControllableSession())) as client:
+        response = client.get("/calibre-books")
+
+    assert response.status_code == 200

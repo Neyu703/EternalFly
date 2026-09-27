@@ -9,12 +9,10 @@ from pathlib import Path
 import requests
 from tqdm import tqdm
 
-ZENODO_FILES = {
-    "proofread_connections_783.feather": "https://zenodo.org/api/records/10676866/files/proofread_connections_783.feather/content",
-    "per_neuron_neuropil_count_pre_783.feather": "https://zenodo.org/api/records/10676866/files/per_neuron_neuropil_count_pre_783.feather/content",
-    "per_neuron_neuropil_count_post_783.feather": "https://zenodo.org/api/records/10676866/files/per_neuron_neuropil_count_post_783.feather/content",
-    "proofread_root_ids_783.npy": "https://zenodo.org/api/records/10676866/files/proofread_root_ids_783.npy/content",
-}
+from scripts.data_paths import DATA_DIR, RAW_DATA_PATHS
+
+# The public Zenodo record holding the FlyWire files, one download URL per file name.
+ZENODO_FILE_URL = "https://zenodo.org/api/records/10676866/files/{file_name}/content"
 
 
 def download_file(url: str, destination_path: Path) -> None:
@@ -37,11 +35,10 @@ def download_file(url: str, destination_path: Path) -> None:
 
 def main() -> None:
     """Download all four connectome files into backend/data/."""
-    data_dir = Path(__file__).resolve().parent.parent / "data"
-    data_dir.mkdir(exist_ok=True)
+    DATA_DIR.mkdir(exist_ok=True)
 
-    for file_name, url in ZENODO_FILES.items():
-        download_file(url, data_dir / file_name)
+    for destination_path in RAW_DATA_PATHS:
+        download_file(ZENODO_FILE_URL.format(file_name=destination_path.name), destination_path)
 
 
 if __name__ == "__main__":

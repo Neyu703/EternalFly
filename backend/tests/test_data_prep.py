@@ -41,33 +41,32 @@ def test_load_feather_table_round_trips_synthetic_table(tmp_path):
 
 def _make_connections_table(rows):
     """Build a synthetic per-(pre, post, neuropil) connections table from a list of row dicts."""
-    columns = {
-        "pre_pt_root_id": [row["pre_pt_root_id"] for row in rows],
-        "post_pt_root_id": [row["post_pt_root_id"] for row in rows],
-        "neuropil": [row["neuropil"] for row in rows],
-        "syn_count": [row["syn_count"] for row in rows],
-        "gaba_avg": [row["gaba_avg"] for row in rows],
-        "ach_avg": [row["ach_avg"] for row in rows],
-        "glut_avg": [row["glut_avg"] for row in rows],
-        "oct_avg": [row["oct_avg"] for row in rows],
-        "ser_avg": [row["ser_avg"] for row in rows],
-        "da_avg": [row["da_avg"] for row in rows],
-    }
-    return pyarrow.table(columns)
+    return pyarrow.Table.from_pylist(rows)
+
+
+# Connection rows reused across tests: a mostly cholinergic ME_L connection and a mostly
+# GABAergic MB_CA_L one between the same neurons, and a single EB connection.
+ME_L_ACH_ROW = {
+    "pre_pt_root_id": 100, "post_pt_root_id": 200, "neuropil": "ME_L",
+    "syn_count": 3, "gaba_avg": 0.1, "ach_avg": 0.8, "glut_avg": 0.05,
+    "da_avg": 0.03, "oct_avg": 0.01, "ser_avg": 0.01,
+}
+MB_CA_L_GABA_ROW = {
+    "pre_pt_root_id": 100, "post_pt_root_id": 200, "neuropil": "MB_CA_L",
+    "syn_count": 1, "gaba_avg": 0.9, "ach_avg": 0.05, "glut_avg": 0.02,
+    "da_avg": 0.01, "oct_avg": 0.01, "ser_avg": 0.01,
+}
+EB_ROW = {
+    "pre_pt_root_id": 300, "post_pt_root_id": 400, "neuropil": "EB",
+    "syn_count": 5, "gaba_avg": 0.2, "ach_avg": 0.5, "glut_avg": 0.1,
+    "da_avg": 0.1, "oct_avg": 0.05, "ser_avg": 0.05,
+}
 
 
 def test_aggregate_connections_by_neuron_pair_weights_by_syn_count_across_neuropils():
     connections_table = _make_connections_table([
-        {
-            "pre_pt_root_id": 100, "post_pt_root_id": 200, "neuropil": "ME_L",
-            "syn_count": 3, "gaba_avg": 0.1, "ach_avg": 0.8, "glut_avg": 0.05,
-            "da_avg": 0.03, "oct_avg": 0.01, "ser_avg": 0.01,
-        },
-        {
-            "pre_pt_root_id": 100, "post_pt_root_id": 200, "neuropil": "MB_CA_L",
-            "syn_count": 1, "gaba_avg": 0.9, "ach_avg": 0.05, "glut_avg": 0.02,
-            "da_avg": 0.01, "oct_avg": 0.01, "ser_avg": 0.01,
-        },
+        ME_L_ACH_ROW,
+        MB_CA_L_GABA_ROW,
     ])
 
     aggregated_table = aggregate_connections_by_neuron_pair(connections_table)
@@ -80,11 +79,7 @@ def test_aggregate_connections_by_neuron_pair_weights_by_syn_count_across_neurop
 
 def test_aggregate_connections_by_neuron_pair_keeps_pair_present_in_single_neuropil_unchanged():
     connections_table = _make_connections_table([
-        {
-            "pre_pt_root_id": 300, "post_pt_root_id": 400, "neuropil": "EB",
-            "syn_count": 5, "gaba_avg": 0.2, "ach_avg": 0.5, "glut_avg": 0.1,
-            "da_avg": 0.1, "oct_avg": 0.05, "ser_avg": 0.05,
-        },
+        EB_ROW,
     ])
 
     aggregated_table = aggregate_connections_by_neuron_pair(connections_table)
@@ -97,11 +92,7 @@ def test_aggregate_connections_by_neuron_pair_keeps_pair_present_in_single_neuro
 
 def test_aggregate_connections_by_neuron_pair_returns_expected_columns_only():
     connections_table = _make_connections_table([
-        {
-            "pre_pt_root_id": 300, "post_pt_root_id": 400, "neuropil": "EB",
-            "syn_count": 5, "gaba_avg": 0.2, "ach_avg": 0.5, "glut_avg": 0.1,
-            "da_avg": 0.1, "oct_avg": 0.05, "ser_avg": 0.05,
-        },
+        EB_ROW,
     ])
 
     aggregated_table = aggregate_connections_by_neuron_pair(connections_table)
@@ -114,16 +105,8 @@ def test_aggregate_connections_by_neuron_pair_returns_expected_columns_only():
 
 def test_aggregate_neurotransmitter_by_neuron_weights_by_syn_count_across_all_connections():
     connections_table = _make_connections_table([
-        {
-            "pre_pt_root_id": 100, "post_pt_root_id": 200, "neuropil": "ME_L",
-            "syn_count": 3, "gaba_avg": 0.1, "ach_avg": 0.8, "glut_avg": 0.05,
-            "da_avg": 0.03, "oct_avg": 0.01, "ser_avg": 0.01,
-        },
-        {
-            "pre_pt_root_id": 100, "post_pt_root_id": 300, "neuropil": "MB_CA_L",
-            "syn_count": 1, "gaba_avg": 0.9, "ach_avg": 0.05, "glut_avg": 0.02,
-            "da_avg": 0.01, "oct_avg": 0.01, "ser_avg": 0.01,
-        },
+        ME_L_ACH_ROW,
+        {**MB_CA_L_GABA_ROW, "post_pt_root_id": 300},
     ])
 
     aggregated_table = aggregate_neurotransmitter_by_neuron(connections_table, "pre_pt_root_id")

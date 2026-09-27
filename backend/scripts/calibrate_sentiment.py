@@ -8,23 +8,18 @@ lexicon or input weights change."""
 
 import statistics
 import sys
-from pathlib import Path
-
-import numpy
-import scipy.sparse
-import torch
 
 from eternalfly.emotion_decoder import EMOTION_NAMES, PoolCalibration
-from eternalfly.lif import LIFParameters
-from eternalfly.reading_session import ReadingSession, ReadingSessionConfig
+from eternalfly.reading_session import ReadingSession
 from eternalfly.text_encoder import tokenize_text
-
-DATA_DIR = Path(__file__).resolve().parent.parent / "data"
-CACHE_DIR = DATA_DIR / "cache"
-WEIGHT_SCALE = 0.15
-INPUT_CURRENT_SCALE = 30.0
-TICKS_PER_WORD = 10
-DISPLAY_WORD_COUNT = 10
+from scripts.session_setup import (
+    TICKS_PER_WORD,
+    VALENCE_WEIGHT,
+    build_session_config,
+    load_adjacency_as_torch_sparse,
+    load_pool_indices,
+    select_device,
+)
 
 POSITIVE_TEXT = (
     "The knight smiled warmly as sunlight filled the garden. Everyone laughed and "
@@ -55,46 +50,16 @@ SETTLING_WORD_COUNT = 30
 IDENTITY_CALIBRATIONS = {name: PoolCalibration(resting_rate=0.0, peak_rate=1.0) for name in EMOTION_NAMES}
 
 
-def load_adjacency_as_torch_sparse(device: str) -> torch.Tensor:
-    """Load the cached signed adjacency matrix, scaled by WEIGHT_SCALE, as a torch sparse CSR tensor."""
-    scipy_matrix = scipy.sparse.load_npz(CACHE_DIR / "adjacency.npz").tocsr()
-    row_pointers = torch.as_tensor(scipy_matrix.indptr, dtype=torch.int64)
-    column_indices = torch.as_tensor(scipy_matrix.indices, dtype=torch.int64)
-    values = torch.as_tensor(scipy_matrix.data, dtype=torch.float32) * WEIGHT_SCALE
-    return torch.sparse_csr_tensor(row_pointers, column_indices, values, size=scipy_matrix.shape, device=device)
-
-
-def load_pool_indices(cache_path: Path, device: str) -> dict[str, torch.Tensor]:
-    """Load a cached per-pool neuron index .npz file as a dict of torch tensors."""
-    raw_pools = numpy.load(cache_path)
-    return {name: torch.as_tensor(raw_pools[name], dtype=torch.int64, device=device) for name in raw_pools.files}
-
-
 def build_session(emotion_calibrations: dict[str, PoolCalibration], valence_weight: float, device: str) -> ReadingSession:
     """A ReadingSession over the real connectome, set up like scripts/run_server.py."""
     adjacency_matrix = load_adjacency_as_torch_sparse(device)
-    pool_indices = load_pool_indices(CACHE_DIR / "pool_indices.npz", device)
-    config = ReadingSessionConfig(
-        lif_parameters=LIFParameters(
-            membrane_time_constant_ms=20.0,
-            spike_threshold=1.0,
-            reset_potential=0.0,
-            refractory_period_ms=2.0,
-            dt_ms=1.0,
-        ),
-        ticks_per_word=TICKS_PER_WORD,
-        input_current_scale=INPUT_CURRENT_SCALE,
-        valence_weight=valence_weight,
-        arousal_weight=1.0,
-        token_seed=42,
-        engagement_window_size=500 * TICKS_PER_WORD,
-        engagement_threshold=0.15,
-        min_ticks_before_boredom_check=500 * TICKS_PER_WORD,
-        display_window_size=DISPLAY_WORD_COUNT * TICKS_PER_WORD,
-        emotion_calibrations=emotion_calibrations,
-        device=device,
+    return ReadingSession(
+        adjacency_matrix.shape[0],
+        adjacency_matrix,
+        load_pool_indices(device),
+        tokenize_text(NEUTRAL_TEXT),
+        build_session_config(device, emotion_calibrations, valence_weight),
     )
-    return ReadingSession(adjacency_matrix.shape[0], adjacency_matrix, pool_indices, tokenize_text(NEUTRAL_TEXT), config)
 
 
 def mean_emotions_after_settling(session: ReadingSession, text: str) -> dict[str, float]:
@@ -151,8 +116,8 @@ def print_passage_check(calibrations: dict[str, PoolCalibration], valence_weight
 def main() -> None:
     """Measure and print the calibrations for the valence_weight given as CLI arg
     (default 1.0), then the passage check using them."""
-    valence_weight = float(sys.argv[1]) if len(sys.argv) > 1 else 1.0
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    valence_weight = float(sys.argv[1]) if len(sys.argv) > 1 else VALENCE_WEIGHT
+    device = select_device()
     calibrations = measure_calibrations(valence_weight, device)
     print_calibrations(calibrations)
     print_passage_check(calibrations, valence_weight, device)

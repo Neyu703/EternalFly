@@ -8,7 +8,6 @@ from eternalfly.session_helpers import (
     inject_currents_at_indices,
     is_new_word_tick,
     spike_fraction_to_hz,
-    word_index_for_tick,
 )
 
 
@@ -96,26 +95,10 @@ def test_is_new_word_tick_non_multiples_of_ticks_per_word_are_not_new_word_ticks
     assert is_new_word_tick(tick_number=tick_number, ticks_per_word=5) is False
 
 
-@pytest.mark.parametrize("tick_number", [0, 1, 2, 3, 4])
-def test_word_index_for_tick_returns_zero_for_first_word_ticks(tick_number):
-    assert word_index_for_tick(tick_number=tick_number, ticks_per_word=5) == 0
-
-
-@pytest.mark.parametrize("tick_number", [5, 6, 7, 8, 9])
-def test_word_index_for_tick_returns_one_for_second_word_ticks(tick_number):
-    assert word_index_for_tick(tick_number=tick_number, ticks_per_word=5) == 1
-
-
 @pytest.mark.parametrize("ticks_per_word", [0, -1])
 def test_is_new_word_tick_non_positive_ticks_per_word_raises_value_error(ticks_per_word):
     with pytest.raises(ValueError):
         is_new_word_tick(tick_number=0, ticks_per_word=ticks_per_word)
-
-
-@pytest.mark.parametrize("ticks_per_word", [0, -1])
-def test_word_index_for_tick_non_positive_ticks_per_word_raises_value_error(ticks_per_word):
-    with pytest.raises(ValueError):
-        word_index_for_tick(tick_number=0, ticks_per_word=ticks_per_word)
 
 
 def test_spike_fraction_to_hz_converts_a_per_millisecond_fraction_to_spikes_per_second():

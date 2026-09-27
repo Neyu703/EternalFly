@@ -24,21 +24,23 @@ def build_signed_adjacency(
     weighted_values = []
 
     for pre_id, post_id, syn_count, nt_type in zip(pre_ids, post_ids, syn_counts, nt_types):
-        pre_id = int(pre_id)
-        post_id = int(post_id)
-        if pre_id not in neuron_id_to_index:
-            raise KeyError(f"pre_id {pre_id} not found in neuron_id_to_index")
-        if post_id not in neuron_id_to_index:
-            raise KeyError(f"post_id {post_id} not found in neuron_id_to_index")
-
-        row_indices.append(neuron_id_to_index[post_id])
-        column_indices.append(neuron_id_to_index[pre_id])
+        column_indices.append(_index_of(pre_id, neuron_id_to_index, "pre"))
+        row_indices.append(_index_of(post_id, neuron_id_to_index, "post"))
         weighted_values.append(syn_count * neurotransmitter_sign(nt_type))
 
     return scipy.sparse.coo_matrix(
         (weighted_values, (row_indices, column_indices)),
         shape=(neuron_count, neuron_count),
     ).tocsr()
+
+
+def _index_of(neuron_id, neuron_id_to_index: dict[int, int], role: str) -> int:
+    """neuron_id's index in neuron_id_to_index. Raises KeyError naming role ("pre" or
+    "post") when it isn't there."""
+    neuron_id = int(neuron_id)
+    if neuron_id not in neuron_id_to_index:
+        raise KeyError(f"{role}_id {neuron_id} not found in neuron_id_to_index")
+    return neuron_id_to_index[neuron_id]
 
 
 def select_pool_by_activity(

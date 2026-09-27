@@ -50,9 +50,16 @@ MAX_FRONT_MATTER_WORDS = 400
 # Without a usable table of contents, a heading-less document this long counts as story.
 MIN_STORY_WORDS = 50
 
+
+
+def _gutenberg_marker_pattern(marker: str) -> re.Pattern:
+    """The line Project Gutenberg opens (marker "START") or closes ("END") its license frame with."""
+    return re.compile(rf"^\*{{3}}\s*{marker} OF (?:THE|THIS) PROJECT GUTENBERG EBOOK.*$", re.IGNORECASE | re.MULTILINE)
+
+
 # Plain text: Project Gutenberg's license frame, and chapter heading lines.
-GUTENBERG_START_PATTERN = re.compile(r"^\*{3}\s*START OF (?:THE|THIS) PROJECT GUTENBERG EBOOK.*$", re.IGNORECASE | re.MULTILINE)
-GUTENBERG_END_PATTERN = re.compile(r"^\*{3}\s*END OF (?:THE|THIS) PROJECT GUTENBERG EBOOK.*$", re.IGNORECASE | re.MULTILINE)
+GUTENBERG_START_PATTERN = _gutenberg_marker_pattern("START")
+GUTENBERG_END_PATTERN = _gutenberg_marker_pattern("END")
 CHAPTER_HEADING_LINE_PATTERN = re.compile(
     r"^[ \t]*(?:chapter|kapitel|prolog(?:ue)?|epilog(?:ue)?|\w+es[ \t]+kapitel)\b[^\n]{0,80}$",
     re.IGNORECASE | re.MULTILINE,
@@ -85,6 +92,11 @@ class SpineDocument:
     text: str
 
 
+def _word_count(text: str) -> int:
+    """The number of whitespace-separated words in text."""
+    return len(text.split())
+
+
 def _normalized_title(title: str) -> str:
     """title with typographic apostrophes and quotes made plain, whitespace collapsed and
     surrounding whitespace and punctuation removed."""
@@ -109,7 +121,7 @@ def is_chapter_like_title(title: str) -> bool:
 def is_front_matter_text(text: str) -> bool:
     """Whether text is a short copyright or metadata page (rights notice, ISBN, © sign, or
     an Archive of Our Own posting note)."""
-    return len(text.split()) < MAX_FRONT_MATTER_WORDS and bool(FRONT_MATTER_TEXT_PATTERN.search(text))
+    return _word_count(text) < MAX_FRONT_MATTER_WORDS and bool(FRONT_MATTER_TEXT_PATTERN.search(text))
 
 
 def document_index_for_href(href: str, document_names: list[str]) -> int | None:
@@ -131,20 +143,43 @@ def story_start_index(toc_entries: list[TocEntry], documents: list[SpineDocument
     heading that merely groups chapters (the fly steps into those). Without such an entry,
     the first document with a chapter heading, or with enough text and no front-matter
     heading or content. Falls back to 0, reading everything."""
+    story_start = _story_start_from_toc(toc_entries, documents)
+    if story_start is None:
+        story_start = _story_start_from_documents(documents)
+    return story_start if story_start is not None else 0
+
+
+def _is_story_toc_entry(entry: TocEntry, document: SpineDocument) -> bool:
+    """Whether a table-of-contents entry, linking to document, opens the story: neither
+    front matter by title or content, nor a book or volume heading that merely groups
+    chapters."""
+    if is_front_matter_title(entry.title) or is_front_matter_text(document.text):
+        return False
+    return not entry.has_children or is_chapter_like_title(entry.title)
+
+
+def _story_start_from_toc(toc_entries: list[TocEntry], documents: list[SpineDocument]) -> int | None:
+    """Index of the document the first story entry of the table of contents links to, or
+    None when no entry qualifies (see _is_story_toc_entry)."""
     document_names = [document.name for document in documents]
     for entry in toc_entries:
         index = document_index_for_href(entry.href, document_names)
-        if index is None or is_front_matter_title(entry.title) or is_front_matter_text(documents[index].text):
-            continue
-        if entry.has_children and not is_chapter_like_title(entry.title):
-            continue
-        return index
-    for index, document in enumerate(documents):
-        if is_front_matter_title(document.heading) or is_front_matter_text(document.text):
-            continue
-        if is_chapter_like_title(document.heading) or len(document.text.split()) >= MIN_STORY_WORDS:
+        if index is not None and _is_story_toc_entry(entry, documents[index]):
             return index
-    return 0
+    return None
+
+
+def _is_story_document(document: SpineDocument) -> bool:
+    """Whether document reads as story: no front-matter heading or content, and a chapter
+    heading or at least MIN_STORY_WORDS words."""
+    if is_front_matter_title(document.heading) or is_front_matter_text(document.text):
+        return False
+    return is_chapter_like_title(document.heading) or _word_count(document.text) >= MIN_STORY_WORDS
+
+
+def _story_start_from_documents(documents: list[SpineDocument]) -> int | None:
+    """Index of the first document that reads as story, or None when none does."""
+    return next((index for index, document in enumerate(documents) if _is_story_document(document)), None)
 
 
 def _without_gutenberg_frame(text: str) -> str:
@@ -167,6 +202,6 @@ def plain_text_story(text: str) -> str:
         if not FIRST_CHAPTER_HEADING_PATTERN.match(heading.group()):
             continue
         section_end = next_heading.start() if next_heading else len(text)
-        if len(text[heading.end() : section_end].split()) >= MIN_CHAPTER_WORDS:
+        if _word_count(text[heading.end() : section_end]) >= MIN_CHAPTER_WORDS:
             return text[heading.start() :]
     return text

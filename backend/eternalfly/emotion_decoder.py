@@ -7,6 +7,16 @@ from dataclasses import dataclass
 # The emotional states the simulated fly brain has circuits for (see compute_emotions).
 EMOTION_NAMES = ("reward", "aversion", "arousal")
 
+# The dopamine rating's scale: 0 (all aversion) to MAX_RATING (all reward), with
+# NEUTRAL_RATING in the middle.
+MAX_RATING = 10.0
+NEUTRAL_RATING = MAX_RATING / 2
+
+
+def _clamp(value: float, low: float, high: float) -> float:
+    """value limited to the range [low, high]."""
+    return max(low, min(high, value))
+
 
 class RollingAverage:
     """A fixed-window moving average over a stream of values.
@@ -52,7 +62,7 @@ def rate_above_rest(rate: float, calibration: PoolCalibration) -> float:
     span = calibration.peak_rate - calibration.resting_rate
     if span <= 0:
         return 0.0
-    return max(0.0, min(1.0, (rate - calibration.resting_rate) / span))
+    return _clamp((rate - calibration.resting_rate) / span, 0.0, 1.0)
 
 
 def compute_emotions(pool_rates: dict[str, float], calibrations: dict[str, PoolCalibration]) -> dict[str, float]:
@@ -72,6 +82,6 @@ def emotions_to_valence(emotions: dict[str, float]) -> float:
 
 
 def compute_rating(valence: float) -> float:
-    """Map valence to a 0-10 rating (5.0 + 5.0 * valence), clamped to [0.0, 10.0]."""
-    raw_rating = 5.0 + 5.0 * valence
-    return max(0.0, min(10.0, raw_rating))
+    """Map valence to a 0-MAX_RATING rating (NEUTRAL_RATING at valence 0), clamped to
+    [0.0, MAX_RATING]."""
+    return _clamp(NEUTRAL_RATING + NEUTRAL_RATING * valence, 0.0, MAX_RATING)

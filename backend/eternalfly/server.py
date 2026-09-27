@@ -1,6 +1,7 @@
 """FastAPI app streaming ReadingSession.tick() results over a WebSocket as JSON."""
 
 import asyncio
+import logging
 import pathlib
 import random
 from dataclasses import asdict
@@ -17,6 +18,8 @@ from eternalfly.calibre_library import list_books
 from eternalfly.folder_library import list_books_in_folder
 from eternalfly.text_encoder import load_and_tokenize_file
 
+logger = logging.getLogger(__name__)
+
 AUTOPLAY_MODE_OFF = "off"
 AUTOPLAY_MODE_RESTART = "restart"
 AUTOPLAY_MODE_SHUFFLE = "shuffle"
@@ -28,6 +31,17 @@ UNSAFE_HTTP_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 def _origin_is_allowed(origin: str | None) -> bool:
     """Whether origin exactly matches one of ALLOWED_ORIGINS."""
     return origin in ALLOWED_ORIGINS
+
+
+def _is_unsafe_cross_origin_request(scope: Scope, origin: str | None) -> bool:
+    """Whether an HTTP request could change state (an unsafe method) and comes from an
+    origin that isn't allowed."""
+    return scope["method"] in UNSAFE_HTTP_METHODS and not _origin_is_allowed(origin)
+
+
+def _http_error(status_code: int, error: Exception) -> HTTPException:
+    """An HTTPException with status_code whose detail is error's message."""
+    return HTTPException(status_code=status_code, detail=str(error))
 
 
 class OriginCheckMiddleware:
@@ -51,7 +65,7 @@ class OriginCheckMiddleware:
             if not _origin_is_allowed(origin):
                 await send({"type": "websocket.close", "code": 1008})
                 return
-        elif scope["method"] in UNSAFE_HTTP_METHODS and not _origin_is_allowed(origin):
+        elif _is_unsafe_cross_origin_request(scope, origin):
             await JSONResponse({"detail": "Origin not allowed"}, status_code=403)(scope, receive, send)
             return
 
@@ -59,11 +73,6 @@ class OriginCheckMiddleware:
 
 
 DEFAULT_LOAD_BOOK_TIMEOUT_SECONDS = 30.0
-
-
-def tick_result_to_json(tick_result) -> dict:
-    """Convert a TickResult into a plain JSON-serializable dict mirroring its fields."""
-    return asdict(tick_result)
 
 
 class LoadBookRequest(BaseModel):
@@ -80,8 +89,6 @@ def _apply_control_message(session, message: dict, current_autoplay_mode: str, b
     message_type = message.get("type")
     if message_type == "set_paused":
         session.set_paused(bool(message.get("paused", False)))
-    elif message_type == "set_speed_multiplier":
-        session.set_speed_multiplier(float(message.get("value", 1.0)))
     elif message_type == "set_words_per_minute":
         session.set_speed_multiplier(float(message.get("value", base_words_per_minute)) / base_words_per_minute)
     elif message_type == "set_autoplay_mode":
@@ -105,13 +112,12 @@ def _load_random_calibre_book(session, calibre_library_path: pathlib.Path | None
     an unattended autoplay session must never crash on a single bad library entry."""
     try:
         books = list_books(calibre_library_path) if calibre_library_path is not None else []
-        if not books:
-            raise ValueError("no books available in the Calibre library")
-        chosen_book = random.choice(books)
-        tokens = load_and_tokenize_file(chosen_book.file_path)
-        session.load_new_text(tokens)
+        if books:
+            session.load_new_text(load_and_tokenize_file(random.choice(books).file_path))
+            return
     except (FileNotFoundError, ValueError):
-        session.restart()
+        pass
+    session.restart()
 
 
 def create_app(
@@ -144,12 +150,17 @@ def create_app(
         autoplay_mode = AUTOPLAY_MODE_OFF
 
         async def receive_control_messages() -> None:
-            """Apply each incoming control message to the session until disconnected."""
+            """Apply each incoming control message to the session until disconnected. An
+            invalid message (e.g. a non-numeric or non-positive reading pace) is logged
+            and skipped, so it can't silently end the handling of every later one."""
             nonlocal autoplay_mode
             try:
                 while True:
                     message = await websocket.receive_json()
-                    autoplay_mode = _apply_control_message(session, message, autoplay_mode, base_words_per_minute)
+                    try:
+                        autoplay_mode = _apply_control_message(session, message, autoplay_mode, base_words_per_minute)
+                    except (ValueError, TypeError) as invalid_message_error:
+                        logger.warning("ignored invalid control message %r: %s", message, invalid_message_error)
             except WebSocketDisconnect:
                 return
 
@@ -163,7 +174,7 @@ def create_app(
                     # once per finish — but it still fires promptly even if the autoplay
                     # mode was only set by the client *after* the book had already finished.
                     _advance_past_finished_book(session, autoplay_mode, calibre_library_path)
-                await websocket.send_json(tick_result_to_json(tick_result))
+                await websocket.send_json(asdict(tick_result))
                 await asyncio.sleep(tick_interval_seconds)
         except WebSocketDisconnect:
             return
@@ -186,9 +197,9 @@ def create_app(
             )
             session.load_new_text(tokens)
         except FileNotFoundError as missing_file_error:
-            raise HTTPException(status_code=404, detail=str(missing_file_error)) from missing_file_error
+            raise _http_error(404, missing_file_error) from missing_file_error
         except ValueError as invalid_book_error:
-            raise HTTPException(status_code=400, detail=str(invalid_book_error)) from invalid_book_error
+            raise _http_error(400, invalid_book_error) from invalid_book_error
         except asyncio.TimeoutError as timeout_error:
             raise HTTPException(
                 status_code=504,
@@ -204,7 +215,7 @@ def create_app(
         try:
             books = list_books_in_folder(pathlib.Path(path))
         except FileNotFoundError as missing_folder_error:
-            raise HTTPException(status_code=404, detail=str(missing_folder_error)) from missing_folder_error
+            raise _http_error(404, missing_folder_error) from missing_folder_error
         return {
             "books": [
                 {"file_name": book.file_name, "file_path": str(book.file_path)} for book in books
@@ -221,7 +232,7 @@ def create_app(
         try:
             books = list_books(calibre_library_path)
         except FileNotFoundError as missing_library_error:
-            raise HTTPException(status_code=404, detail=str(missing_library_error)) from missing_library_error
+            raise _http_error(404, missing_library_error) from missing_library_error
         return {
             "books": [
                 {

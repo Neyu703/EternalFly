@@ -4,27 +4,28 @@ tick-by-tick 'the fly reads a book' session."""
 import logging
 from dataclasses import dataclass
 
+import numpy
 import torch
 
-from eternalfly.emotion_decoder import (
-    EMOTION_NAMES,
-    PoolCalibration,
-    RollingAverage,
-    compute_emotions,
-    compute_rating,
-    emotions_to_valence,
-)
+from eternalfly.activity_readout import ActivityReadout, RegionSynapseWeights
+from eternalfly.emotion_decoder import PoolCalibration
 from eternalfly.lif import LIFParameters, LIFState, create_initial_state, step
-from eternalfly.session_helpers import (
-    compute_pool_spike_rate,
-    inject_currents_at_indices,
-    spike_fraction_to_hz,
-    word_index_for_tick,
+from eternalfly.session_helpers import inject_currents_at_indices
+from eternalfly.text_encoder import (
+    VALENCE_CHANNELS,
+    project_arousal_to_currents,
+    project_token_to_currents,
+    project_valence_to_currents,
 )
-from eternalfly.text_encoder import project_arousal_to_currents, project_token_to_currents, project_valence_to_currents
 from eternalfly.word_activity_log import WordActivityLog
 
 logger = logging.getLogger(__name__)
+
+# Which pool_indices population each emotion is read from (see ReadingSession.__init__).
+EMOTION_POOL_NAMES = {"reward": "valence_positive", "aversion": "valence_negative", "arousal": "arousal_input"}
+
+# The text_encoder valence channel that excites each valence emotion's population.
+VALENCE_CHANNEL_BY_EMOTION = dict(zip(("reward", "aversion"), VALENCE_CHANNELS))
 
 
 @dataclass(frozen=True)
@@ -43,16 +44,6 @@ class ReadingSessionConfig:
     display_window_size: int  # short window for the live-displayed rating/emotions/region_activity, separate from engagement_window_size's long-run boredom judgment
     emotion_calibrations: dict[str, PoolCalibration]  # resting/peak rate per emotion's population, see emotion_decoder.compute_emotions
     device: str = "cpu"
-
-
-@dataclass(frozen=True)
-class RegionSynapseWeights:
-    """Brain regions to report firing rates for: their names and a (region count, neuron
-    count) matrix whose row per region holds each neuron's share of that region's synapses
-    (see connectome.build_region_synapse_weights), in the same order."""
-
-    names: list[str]
-    weights: torch.Tensor
 
 
 @dataclass(frozen=True)
@@ -103,32 +94,37 @@ class ReadingSession:
         self._neuron_count = neuron_count
         self._adjacency_matrix = adjacency_matrix
         self._sensory_pool_indices = pool_indices["sensory_input"].to(config.device)
-        self._valence_positive_pool_indices = pool_indices["valence_positive"].to(config.device)
-        self._valence_negative_pool_indices = pool_indices["valence_negative"].to(config.device)
-        self._arousal_input_pool_indices = pool_indices["arousal_input"].to(config.device)
+        self._emotion_pool_indices = {
+            emotion_name: pool_indices[pool_name].to(config.device) for emotion_name, pool_name in EMOTION_POOL_NAMES.items()
+        }
         self._tokens = tokens
         self._config = config
 
         self._state: LIFState = create_initial_state(neuron_count, device=config.device)
         self._previous_spikes = torch.zeros(neuron_count, device=config.device)
         self._tick_number = 0
+        self._word_index = 0
+        self._ticks_into_word = 0
         self._is_paused = False
         self._speed_multiplier = 1.0
         self._last_tick_result: TickResult | None = None
 
-        # Two independent timescales over the same raw per-tick pool spike rates: a short
-        # window so the displayed rating/emotions/region_activity visibly react to the
-        # sentence currently being read, and a long window purely for judging whether the
-        # fly has been engaged over its recent reading as a whole (wants_new_book).
-        self._display_rate_averages = {name: RollingAverage(config.display_window_size) for name in EMOTION_NAMES}
-        self._engagement_rate_averages = {name: RollingAverage(config.engagement_window_size) for name in EMOTION_NAMES}
-        self._engagement_average = RollingAverage(config.engagement_window_size)
+        self._readout = ActivityReadout(
+            self._emotion_pool_indices,
+            config.emotion_calibrations,
+            config.display_window_size,
+            config.engagement_window_size,
+            config.lif_parameters.dt_ms,
+            region_synapse_weights,
+            config.device,
+        )
         self._word_activity_log = WordActivityLog()
 
-        self._region_names = region_synapse_weights.names if region_synapse_weights else []
-        self._region_weights = region_synapse_weights.weights.to(config.device) if region_synapse_weights else None
-        self._region_rate_averages = [RollingAverage(config.display_window_size) for _ in self._region_names]
-        self._firing_rate_average = RollingAverage(config.display_window_size)
+    def _pool_input(self, pool_indices: torch.Tensor, currents: numpy.ndarray) -> torch.Tensor:
+        """A full-network current tensor carrying currents at pool_indices, zero elsewhere."""
+        return inject_currents_at_indices(
+            self._neuron_count, pool_indices, torch.as_tensor(currents, dtype=torch.float32), self._config.device
+        )
 
     def _current_external_input(self, word_index: int, book_finished: bool) -> torch.Tensor:
         """Return this tick's injected current: the active word's projection, held for its
@@ -146,130 +142,57 @@ class ReadingSession:
             return torch.zeros(self._neuron_count, device=self._config.device)
 
         token = self._tokens[word_index]
-
-        sensory_currents = project_token_to_currents(
-            token, len(self._sensory_pool_indices), self._config.input_current_scale, self._config.token_seed
-        )
-        external_input = inject_currents_at_indices(
-            self._neuron_count,
+        config = self._config
+        external_input = self._pool_input(
             self._sensory_pool_indices,
-            torch.as_tensor(sensory_currents, dtype=torch.float32),
-            self._config.device,
+            project_token_to_currents(token, len(self._sensory_pool_indices), config.input_current_scale, config.token_seed),
         )
-
-        for valence_pool_indices, channel in (
-            (self._valence_positive_pool_indices, "positive"),
-            (self._valence_negative_pool_indices, "negative"),
-        ):
-            valence_currents = project_valence_to_currents(
-                token, len(valence_pool_indices), self._config.input_current_scale, self._config.valence_weight, channel
-            )
-            external_input = external_input + inject_currents_at_indices(
-                self._neuron_count,
+        for emotion_name, channel in VALENCE_CHANNEL_BY_EMOTION.items():
+            valence_pool_indices = self._emotion_pool_indices[emotion_name]
+            external_input += self._pool_input(
                 valence_pool_indices,
-                torch.as_tensor(valence_currents, dtype=torch.float32),
-                self._config.device,
+                project_valence_to_currents(
+                    token, len(valence_pool_indices), config.input_current_scale, config.valence_weight, channel
+                ),
             )
-
-        arousal_currents = project_arousal_to_currents(
-            token, len(self._arousal_input_pool_indices), self._config.input_current_scale, self._config.arousal_weight
+        arousal_pool_indices = self._emotion_pool_indices["arousal"]
+        external_input += self._pool_input(
+            arousal_pool_indices,
+            project_arousal_to_currents(token, len(arousal_pool_indices), config.input_current_scale, config.arousal_weight),
         )
-        external_input = external_input + inject_currents_at_indices(
-            self._neuron_count,
-            self._arousal_input_pool_indices,
-            torch.as_tensor(arousal_currents, dtype=torch.float32),
-            self._config.device,
-        )
-
         return external_input
 
-    def _raw_pool_rates(self, spikes: torch.Tensor) -> dict[str, float]:
-        """Return this tick's raw (unsmoothed) spike rate of each emotion's population,
-        keyed by emotion name, fed into both the short display window and the long
-        engagement window below."""
-        return {
-            "reward": compute_pool_spike_rate(spikes, self._valence_positive_pool_indices),
-            "aversion": compute_pool_spike_rate(spikes, self._valence_negative_pool_indices),
-            "arousal": compute_pool_spike_rate(spikes, self._arousal_input_pool_indices),
-        }
-
-    def _emotions_and_rating(self, pool_rates: dict[str, float]) -> tuple[dict[str, float], float]:
-        """The emotions read from pool_rates (keyed by emotion name) against this session's
-        calibrations, and the dopamine rating of their net valence."""
-        emotions = compute_emotions(pool_rates, self._config.emotion_calibrations)
-        return emotions, compute_rating(emotions_to_valence(emotions))
-
-    def _update_display_activity(self, raw_rates: dict[str, float]) -> tuple[dict[str, float], float, dict[str, float]]:
-        """Roll raw_rates through the short display window and derive this tick's
-        visibly-reactive emotions, rating and region_activity.
-        region_activity reports the reward and punishment dopamine neurons' smoothed firing
-        rates in Hz as "approach"/"avoidance" and the arousal emotion as "arousal", so the
-        displayed Arousal tile matches the Emotions card."""
-        display_rates = {name: average.update(raw_rates[name]) for name, average in self._display_rate_averages.items()}
-        emotions, rating = self._emotions_and_rating(display_rates)
-        region_activity = {
-            "approach": self._to_hz(display_rates["reward"]),
-            "avoidance": self._to_hz(display_rates["aversion"]),
-            "arousal": emotions["arousal"],
-        }
-        return emotions, rating, region_activity
-
-    def _update_engagement_rating_and_arousal(self, raw_rates: dict[str, float]) -> tuple[float, float]:
-        """Roll raw_rates through the long engagement window and derive the smoothed
-        rating/arousal used to judge whether the fly is bored (see _update_engagement)."""
-        engagement_rates = {
-            name: average.update(raw_rates[name]) for name, average in self._engagement_rate_averages.items()
-        }
-        emotions, rating = self._emotions_and_rating(engagement_rates)
-        return rating, emotions["arousal"]
-
-    def _to_hz(self, spike_fraction: float) -> float:
-        """Convert a per-tick spike fraction into spikes per second (see
-        session_helpers.spike_fraction_to_hz) for this session's simulation time step."""
-        return spike_fraction_to_hz(spike_fraction, self._config.lif_parameters.dt_ms)
-
-    def _update_neuropil_activity(self, spikes: torch.Tensor) -> dict[str, float]:
-        """Roll each configured region's synapse-weighted firing rate forward and return
-        the smoothed rate in Hz per region name. Empty when no region_synapse_weights were
-        given."""
-        if self._region_weights is None:
-            return {}
-        region_spike_fractions = (self._region_weights @ spikes).tolist()
-        return {
-            region_name: self._to_hz(average.update(spike_fraction))
-            for region_name, average, spike_fraction in zip(
-                self._region_names, self._region_rate_averages, region_spike_fractions
-            )
-        }
-
-    def _update_firing_rate(self, spikes: torch.Tensor) -> float:
-        """Roll the whole brain's firing rate (the mean over every simulated neuron) forward
-        through the display window and return it in Hz."""
-        return self._to_hz(self._firing_rate_average.update(spikes.mean().item()))
-
-    def _update_engagement(self, rating: float, arousal_rate: float) -> bool:
-        """Track a smoothed engagement score and report whether the fly wants a new book."""
-        engagement_score = (rating / 10.0 + arousal_rate) / 2.0
-        smoothed_engagement = self._engagement_average.update(engagement_score)
+    def _wants_new_book(self, smoothed_engagement: float) -> bool:
+        """Whether the fly has read long enough to judge and stayed below the engagement
+        threshold over its recent reading."""
         has_enough_history = self._tick_number >= self._config.min_ticks_before_boredom_check
         return has_enough_history and smoothed_engagement < self._config.engagement_threshold
 
+    def _restart_word_progress(self) -> None:
+        """Put the reading position back on the book's first word. The last result is
+        dropped too, so a paused session shows the (new or restarted) book's first word
+        instead of the result from before."""
+        self._tick_number = 0
+        self._word_index = 0
+        self._ticks_into_word = 0
+        self._last_tick_result = None
+
     def load_new_text(self, tokens: list[str]) -> None:
-        """Swap in a new book's tokens and restart word progress from tick 0, while
+        """Swap in a new book's tokens and restart word progress from its first word, while
         deliberately keeping the simulated brain's ongoing LIF/engagement state intact
         across books — only the text feed changes."""
         if not tokens:
             raise ValueError("tokens must not be empty")
         self._word_activity_log.close_book()
         self._tokens = tokens
-        self._tick_number = 0
+        self._restart_word_progress()
         logger.info("new book loaded: %d words", len(tokens))
 
     def restart(self) -> None:
         """Restart the current book from its first word, keeping its tokens and the
         simulated brain's ongoing LIF/engagement state intact."""
         self._word_activity_log.close_book()
-        self._tick_number = 0
+        self._restart_word_progress()
         logger.info("book restarted from its first word")
 
     def set_paused(self, paused: bool) -> None:
@@ -279,8 +202,9 @@ class ReadingSession:
         logger.info("reading %s", "paused" if paused else "resumed")
 
     def set_speed_multiplier(self, multiplier: float) -> None:
-        """Set how many effective ticks make up one word: higher values read faster.
-        Raises ValueError if multiplier is not positive."""
+        """Set how many effective ticks make up one word: higher values read faster. The
+        word being read keeps its place; only how long each word lasts changes. Raises
+        ValueError if multiplier is not positive."""
         if multiplier <= 0:
             raise ValueError(f"speed multiplier must be positive, got {multiplier}")
         self._speed_multiplier = multiplier
@@ -318,9 +242,17 @@ class ReadingSession:
             result = self._advance_single_tick()
         return result
 
+    def _advance_word_position(self) -> None:
+        """Count one more tick on the current word, moving on to the next word once it has
+        lasted the current effective ticks per word."""
+        self._ticks_into_word += 1
+        if self._ticks_into_word >= self._effective_ticks_per_word():
+            self._word_index += 1
+            self._ticks_into_word = 0
+
     def _advance_single_tick(self) -> TickResult:
         """Advance the session by exactly one raw simulation tick and return its result."""
-        word_index = word_index_for_tick(self._tick_number, self._effective_ticks_per_word())
+        word_index = self._word_index
         book_finished = word_index >= len(self._tokens)
         current_word = None if book_finished else self._tokens[word_index]
 
@@ -330,30 +262,24 @@ class ReadingSession:
         )
         self._previous_spikes = spikes
 
-        raw_rates = self._raw_pool_rates(spikes)
-        emotions, rating, region_activity = self._update_display_activity(raw_rates)
-        self._word_activity_log.record(word_index, current_word, raw_rates, emotions, rating)
-        neuropil_activity = self._update_neuropil_activity(spikes)
-        firing_rate_hz = self._update_firing_rate(spikes)
-        engagement_rating, engagement_arousal = self._update_engagement_rating_and_arousal(raw_rates)
-        wants_new_book = self._update_engagement(engagement_rating, engagement_arousal)
-
-        page_progress = 1.0 if book_finished else (word_index + 1) / len(self._tokens)
-        words_read = len(self._tokens) if book_finished else word_index + 1
-        self._tick_number += 1
-
+        readout = self._readout.read(spikes)
+        self._word_activity_log.record(word_index, current_word, readout.raw_rates, readout.emotions, readout.rating_0_10)
         tick_result = TickResult(
             current_word=current_word,
-            page_progress=page_progress,
-            words_read=words_read,
+            page_progress=1.0 if book_finished else (word_index + 1) / len(self._tokens),
+            words_read=len(self._tokens) if book_finished else word_index + 1,
             total_words=len(self._tokens),
-            emotions=emotions,
-            rating_0_10=rating,
-            region_activity=region_activity,
-            neuropil_activity=neuropil_activity,
-            firing_rate_hz=firing_rate_hz,
-            wants_new_book=wants_new_book,
+            emotions=readout.emotions,
+            rating_0_10=readout.rating_0_10,
+            region_activity=readout.region_activity,
+            neuropil_activity=readout.neuropil_activity,
+            firing_rate_hz=readout.firing_rate_hz,
+            wants_new_book=self._wants_new_book(readout.smoothed_engagement),
             book_finished=book_finished,
         )
+
+        self._tick_number += 1
+        if not book_finished:
+            self._advance_word_position()
         self._last_tick_result = tick_result
         return tick_result

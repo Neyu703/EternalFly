@@ -5,7 +5,7 @@ with its own metadata.db (see calibre_library.py for that case)."""
 import pathlib
 from dataclasses import dataclass
 
-SUPPORTED_SUFFIXES = (".epub", ".txt")
+from eternalfly.text_encoder import SUPPORTED_BOOK_SUFFIXES
 
 
 @dataclass(frozen=True)
@@ -26,7 +26,7 @@ def list_books_in_folder(folder_path: pathlib.Path) -> list[FolderBook]:
     matching_files = [
         entry
         for entry in folder_path.iterdir()
-        if entry.is_file() and entry.suffix.lower() in SUPPORTED_SUFFIXES
+        if entry.is_file() and entry.suffix.lower() in SUPPORTED_BOOK_SUFFIXES
     ]
     matching_files.sort(key=lambda entry: entry.name.lower())
     return [FolderBook(file_name=entry.name, file_path=entry) for entry in matching_files]

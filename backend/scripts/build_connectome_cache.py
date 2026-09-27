@@ -2,9 +2,8 @@
 FlyWire files (Milestone 0's final step). Composes already-tested eternalfly functions;
 not unit-tested itself, same convention as download_connectome.py."""
 
-from pathlib import Path
-
 import numpy
+import pyarrow
 import scipy.sparse
 
 from eternalfly.connectome import (
@@ -25,9 +24,16 @@ from eternalfly.data_prep import (
     neuropil_synapse_count_rows,
 )
 from eternalfly.neuropils import ALL_NEUROPIL_NAMES
-
-DATA_DIR = Path(__file__).resolve().parent.parent / "data"
-CACHE_DIR = DATA_DIR / "cache"
+from scripts.data_paths import (
+    ADJACENCY_CACHE_PATH,
+    CACHE_DIR,
+    CONNECTIONS_PATH,
+    POOL_INDICES_CACHE_PATH,
+    POST_NEUROPIL_COUNTS_PATH,
+    PRE_NEUROPIL_COUNTS_PATH,
+    REGION_SYNAPSE_WEIGHTS_CACHE_PATH,
+    ROOT_IDS_PATH,
+)
 
 # Neuropil groups per activity-selected pool: the optic lobe (visual) for sensory input.
 POOL_NEUROPILS = {
@@ -55,6 +61,11 @@ AROUSAL_OCTOPAMINERGIC_NEUROPILS = {
 }
 
 
+def neuron_indices_for_ids(neuron_ids: numpy.ndarray, neuron_id_to_index: dict[int, int]) -> numpy.ndarray:
+    """The network indices of neuron_ids, in the same order."""
+    return numpy.array([neuron_id_to_index[int(neuron_id)] for neuron_id in neuron_ids])
+
+
 def build_pool_indices(
     post_neuropil_table,
     root_ids: numpy.ndarray,
@@ -70,9 +81,7 @@ def build_pool_indices(
         )
         known_ids, known_counts = filter_ids_to_known_set(candidate_ids, candidate_counts, root_ids)
         selected_ids = select_pool_by_activity(known_ids, known_counts, POOL_TOP_FRACTION)
-        pool_indices[pool_name] = numpy.array(
-            [neuron_id_to_index[int(neuron_id)] for neuron_id in selected_ids]
-        )
+        pool_indices[pool_name] = neuron_indices_for_ids(selected_ids, neuron_id_to_index)
     return pool_indices
 
 
@@ -103,74 +112,108 @@ def build_neurotransmitter_filtered_pool_indices(
         candidate_ids, candidate_counts = aggregate_neuron_activity_by_neuropil(
             pre_neuropil_table, target_neuropils, "pre_pt_root_id"
         )
-        matches_neurotransmitter = numpy.isin(
-            candidate_ids.astype(numpy.int64), matching_neuron_ids.astype(numpy.int64)
-        )
-        pool_candidates[pool_name] = (candidate_ids[matches_neurotransmitter], candidate_counts[matches_neurotransmitter])
+        pool_candidates[pool_name] = filter_ids_to_known_set(candidate_ids, candidate_counts, matching_neuron_ids)
 
     pool_indices = {}
     for pool_name, (candidate_ids, candidate_counts) in keep_shared_neurons_in_majority_pool(pool_candidates).items():
         known_ids, _known_counts = filter_ids_to_known_set(candidate_ids, candidate_counts, root_ids)
-        pool_indices[pool_name] = numpy.array([neuron_id_to_index[int(neuron_id)] for neuron_id in known_ids])
+        pool_indices[pool_name] = neuron_indices_for_ids(known_ids, neuron_id_to_index)
     return pool_indices
 
 
-def main() -> None:
-    """Build and cache the signed adjacency matrix and the neuron pools."""
-    CACHE_DIR.mkdir(exist_ok=True)
+def build_all_pool_indices(
+    connections_table: pyarrow.Table,
+    pre_neuropil_table: pyarrow.Table,
+    post_neuropil_table: pyarrow.Table,
+    root_ids: numpy.ndarray,
+    neuron_id_to_index: dict[int, int],
+) -> dict[str, numpy.ndarray]:
+    """Every pool the reading session uses: the activity-selected sensory pool, the
+    dopaminergic valence pools and the octopaminergic arousal pool."""
+    pool_indices = build_pool_indices(post_neuropil_table, root_ids, neuron_id_to_index, POOL_NEUROPILS)
+    for neurotransmitter_label, pool_neuropils in (
+        ("da", VALENCE_DOPAMINERGIC_NEUROPILS),
+        ("oct", AROUSAL_OCTOPAMINERGIC_NEUROPILS),
+    ):
+        pool_indices.update(
+            build_neurotransmitter_filtered_pool_indices(
+                connections_table, pre_neuropil_table, root_ids, neuron_id_to_index, neurotransmitter_label, pool_neuropils
+            )
+        )
+    return pool_indices
 
-    root_ids = load_root_ids(DATA_DIR / "proofread_root_ids_783.npy")
-    neuron_id_to_index = build_neuron_index(root_ids)
-    print("neuron count:", len(root_ids))
 
-    connections_table = load_feather_table(DATA_DIR / "proofread_connections_783.feather")
+def build_and_save_adjacency(connections_table: pyarrow.Table, neuron_id_to_index: dict[int, int]) -> None:
+    """Build the signed adjacency matrix from the per-neuron-pair connections and cache it."""
     aggregated_table = aggregate_connections_by_neuron_pair(connections_table)
-    neurotransmitter_labels = dominant_neurotransmitter_labels(aggregated_table)
     print("aggregated edges:", aggregated_table.num_rows)
-
     adjacency_matrix = build_signed_adjacency(
         aggregated_table["pre_pt_root_id"].to_numpy(),
         aggregated_table["post_pt_root_id"].to_numpy(),
         aggregated_table["syn_count"].to_numpy(),
-        neurotransmitter_labels,
+        dominant_neurotransmitter_labels(aggregated_table),
         neuron_id_to_index,
     )
-    scipy.sparse.save_npz(CACHE_DIR / "adjacency.npz", adjacency_matrix)
+    scipy.sparse.save_npz(ADJACENCY_CACHE_PATH, adjacency_matrix)
     print("saved adjacency:", adjacency_matrix.shape, "nnz:", adjacency_matrix.nnz)
 
-    post_neuropil_table = load_feather_table(DATA_DIR / "per_neuron_neuropil_count_post_783.feather")
-    pool_indices = build_pool_indices(post_neuropil_table, root_ids, neuron_id_to_index, POOL_NEUROPILS)
 
-    pre_neuropil_table = load_feather_table(DATA_DIR / "per_neuron_neuropil_count_pre_783.feather")
-    pool_indices.update(
-        build_neurotransmitter_filtered_pool_indices(
-            connections_table, pre_neuropil_table, root_ids, neuron_id_to_index, "da", VALENCE_DOPAMINERGIC_NEUROPILS
-        )
+def build_and_save_pool_indices(
+    connections_table: pyarrow.Table,
+    pre_neuropil_table: pyarrow.Table,
+    post_neuropil_table: pyarrow.Table,
+    root_ids: numpy.ndarray,
+    neuron_id_to_index: dict[int, int],
+) -> None:
+    """Build every neuron pool (see build_all_pool_indices) and cache them."""
+    pool_indices = build_all_pool_indices(
+        connections_table, pre_neuropil_table, post_neuropil_table, root_ids, neuron_id_to_index
     )
-    pool_indices.update(
-        build_neurotransmitter_filtered_pool_indices(
-            connections_table, pre_neuropil_table, root_ids, neuron_id_to_index, "oct", AROUSAL_OCTOPAMINERGIC_NEUROPILS
-        )
-    )
-
-    numpy.savez(CACHE_DIR / "pool_indices.npz", **pool_indices)
+    numpy.savez(POOL_INDICES_CACHE_PATH, **pool_indices)
     for pool_name, indices in pool_indices.items():
         print(f"pool {pool_name}: {len(indices)} neurons")
 
+
+def build_and_save_region_synapse_weights(
+    pre_neuropil_table: pyarrow.Table,
+    post_neuropil_table: pyarrow.Table,
+    neuron_id_to_index: dict[int, int],
+    neuron_count: int,
+) -> None:
+    """Build the region x neuron synapse-share matrix from pre- and postsynapse counts and
+    cache it. Its rows follow ALL_NEUROPIL_NAMES; see activity_readout.ActivityReadout for
+    how they become region firing rates."""
     region_rows = [
         neuropil_synapse_count_rows(table, id_column, neuron_id_to_index, ALL_NEUROPIL_NAMES)
         for table, id_column in ((pre_neuropil_table, "pre_pt_root_id"), (post_neuropil_table, "post_pt_root_id"))
     ]
+    neuron_indices, region_indices, synapse_counts = (numpy.concatenate(parts) for parts in zip(*region_rows))
     region_synapse_weights = build_region_synapse_weights(
-        numpy.concatenate([rows[0] for rows in region_rows]),
-        numpy.concatenate([rows[1] for rows in region_rows]),
-        numpy.concatenate([rows[2] for rows in region_rows]),
+        neuron_indices,
+        region_indices,
+        synapse_counts,
         region_count=len(ALL_NEUROPIL_NAMES),
-        neuron_count=len(root_ids),
+        neuron_count=neuron_count,
     )
-    # Rows follow ALL_NEUROPIL_NAMES; see ReadingSession for how they become region firing rates.
-    scipy.sparse.save_npz(CACHE_DIR / "region_synapse_weights.npz", region_synapse_weights)
+    scipy.sparse.save_npz(REGION_SYNAPSE_WEIGHTS_CACHE_PATH, region_synapse_weights)
     print("region synapse weights:", region_synapse_weights.shape, "nnz:", region_synapse_weights.nnz)
+
+
+def main() -> None:
+    """Build and cache the signed adjacency matrix, the neuron pools and the region synapse weights."""
+    CACHE_DIR.mkdir(exist_ok=True)
+
+    root_ids = load_root_ids(ROOT_IDS_PATH)
+    neuron_id_to_index = build_neuron_index(root_ids)
+    print("neuron count:", len(root_ids))
+
+    connections_table = load_feather_table(CONNECTIONS_PATH)
+    pre_neuropil_table = load_feather_table(PRE_NEUROPIL_COUNTS_PATH)
+    post_neuropil_table = load_feather_table(POST_NEUROPIL_COUNTS_PATH)
+
+    build_and_save_adjacency(connections_table, neuron_id_to_index)
+    build_and_save_pool_indices(connections_table, pre_neuropil_table, post_neuropil_table, root_ids, neuron_id_to_index)
+    build_and_save_region_synapse_weights(pre_neuropil_table, post_neuropil_table, neuron_id_to_index, len(root_ids))
 
 
 if __name__ == "__main__":

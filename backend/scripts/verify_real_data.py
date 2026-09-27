@@ -2,26 +2,18 @@
 files and report sizes/timings. Not part of the tested package - throwaway verification."""
 
 import time
-from pathlib import Path
 
 import numpy
 
 from eternalfly.data_prep import (
     aggregate_connections_by_neuron_pair,
-    aggregate_neuron_activity_by_neuropil,
     build_neuron_index,
     dominant_neurotransmitter_labels,
-    filter_ids_to_known_set,
     load_feather_table,
     load_root_ids,
 )
-
-DATA_DIR = Path(__file__).resolve().parent.parent / "data"
-
-SENSORY_INPUT_NEUROPILS = ["ME_L", "ME_R", "LO_L", "LO_R"]
-APPROACH_POOL_NEUROPILS = ["MB_ML_L", "MB_ML_R"]
-AVOIDANCE_POOL_NEUROPILS = ["MB_VL_L", "MB_VL_R"]
-AROUSAL_POOL_NEUROPILS = ["EB", "FB"]
+from scripts.build_connectome_cache import build_all_pool_indices
+from scripts.data_paths import CONNECTIONS_PATH, POST_NEUROPIL_COUNTS_PATH, PRE_NEUROPIL_COUNTS_PATH, ROOT_IDS_PATH
 
 
 def timed(label: str, function, *args):
@@ -33,13 +25,20 @@ def timed(label: str, function, *args):
     return result
 
 
+def count_unknown_ids(neuron_ids: numpy.ndarray, root_ids: numpy.ndarray) -> int:
+    """How many of neuron_ids are not proofread neurons. Both are cast to int64 first:
+    numpy.isin on mixed int64/uint64 ids compares them as float64, which loses precision
+    for FlyWire ids (see data_prep.filter_ids_to_known_set)."""
+    return int((~numpy.isin(neuron_ids.astype(numpy.int64), root_ids.astype(numpy.int64))).sum())
+
+
 def main() -> None:
-    root_ids = timed("load_root_ids", load_root_ids, DATA_DIR / "proofread_root_ids_783.npy")
+    """Load the connectome, aggregate it and build the session's neuron pools, reporting
+    sizes and how long each stage takes."""
+    root_ids = timed("load_root_ids", load_root_ids, ROOT_IDS_PATH)
     print("neuron count:", len(root_ids))
 
-    connections_table = timed(
-        "load connections feather", load_feather_table, DATA_DIR / "proofread_connections_783.feather"
-    )
+    connections_table = timed("load connections feather", load_feather_table, CONNECTIONS_PATH)
     print("raw connection rows:", connections_table.num_rows)
 
     aggregated_table = timed(
@@ -54,30 +53,23 @@ def main() -> None:
 
     neuron_index = timed("build_neuron_index", build_neuron_index, root_ids)
 
-    pre_ids = aggregated_table["pre_pt_root_id"].to_numpy()
-    post_ids = aggregated_table["post_pt_root_id"].to_numpy()
-    syn_counts = aggregated_table["syn_count"].to_numpy()
-
-    unknown_pre = (~numpy.isin(pre_ids, root_ids)).sum()
-    unknown_post = (~numpy.isin(post_ids, root_ids)).sum()
+    unknown_pre = count_unknown_ids(aggregated_table["pre_pt_root_id"].to_numpy(), root_ids)
+    unknown_post = count_unknown_ids(aggregated_table["post_pt_root_id"].to_numpy(), root_ids)
     print("edges with unknown pre id:", unknown_pre, " unknown post id:", unknown_post)
 
-    post_neuropil_table = timed(
-        "load post-neuropil feather", load_feather_table, DATA_DIR / "per_neuron_neuropil_count_post_783.feather"
+    pre_neuropil_table = timed("load pre-neuropil feather", load_feather_table, PRE_NEUROPIL_COUNTS_PATH)
+    post_neuropil_table = timed("load post-neuropil feather", load_feather_table, POST_NEUROPIL_COUNTS_PATH)
+    pool_indices = timed(
+        "build_all_pool_indices",
+        build_all_pool_indices,
+        connections_table,
+        pre_neuropil_table,
+        post_neuropil_table,
+        root_ids,
+        neuron_index,
     )
-    for pool_name, neuropils in [
-        ("sensory_input", SENSORY_INPUT_NEUROPILS),
-        ("approach", APPROACH_POOL_NEUROPILS),
-        ("avoidance", AVOIDANCE_POOL_NEUROPILS),
-        ("arousal", AROUSAL_POOL_NEUROPILS),
-    ]:
-        pool_ids, pool_counts = aggregate_neuron_activity_by_neuropil(
-            post_neuropil_table, neuropils, "post_pt_root_id"
-        )
-        pool_ids, pool_counts = filter_ids_to_known_set(pool_ids, pool_counts, root_ids)
-        print(f"pool candidates for {pool_name}: {len(pool_ids)} neurons (of {len(root_ids)} total)")
-
-    print("skipping build_signed_adjacency full run for now (timing only planned) -- see follow-up")
+    for pool_name, indices in pool_indices.items():
+        print(f"pool {pool_name}: {len(indices)} neurons (of {len(root_ids)} total)")
 
 
 if __name__ == "__main__":

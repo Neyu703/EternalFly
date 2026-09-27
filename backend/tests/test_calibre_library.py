@@ -1,36 +1,9 @@
 import pathlib
-import sqlite3
 
 import pytest
+from calibre_fixtures import add_calibre_rows, create_calibre_library, dune_rows
 
-from eternalfly.calibre_library import CalibreBook, configured_library_path, list_books
-
-
-def _create_library(tmp_path: pathlib.Path) -> pathlib.Path:
-    """Create a bare Calibre-shaped metadata.db (no rows yet) under a fresh library dir."""
-    library_path = tmp_path / "library"
-    library_path.mkdir()
-    connection = sqlite3.connect(library_path / "metadata.db")
-    connection.executescript(
-        """
-        CREATE TABLE books (id INTEGER PRIMARY KEY, title TEXT, path TEXT);
-        CREATE TABLE authors (id INTEGER PRIMARY KEY, name TEXT);
-        CREATE TABLE books_authors_link (book INTEGER, author INTEGER);
-        CREATE TABLE data (id INTEGER PRIMARY KEY, book INTEGER, format TEXT, name TEXT);
-        """
-    )
-    connection.commit()
-    connection.close()
-    return library_path
-
-
-def _run_sql(library_path: pathlib.Path, *statements: str) -> None:
-    """Execute one or more raw INSERT statements against the library's metadata.db."""
-    connection = sqlite3.connect(library_path / "metadata.db")
-    for statement in statements:
-        connection.execute(statement)
-    connection.commit()
-    connection.close()
+from eternalfly.calibre_library import PREFERRED_FORMATS, CalibreBook, configured_library_path, list_books
 
 
 def test_list_books_raises_file_not_found_when_metadata_db_missing(tmp_path):
@@ -43,14 +16,7 @@ def test_list_books_raises_file_not_found_when_metadata_db_missing(tmp_path):
 
 
 def test_list_books_returns_title_author_and_resolved_path_for_single_book(tmp_path):
-    library_path = _create_library(tmp_path)
-    _run_sql(
-        library_path,
-        "INSERT INTO books VALUES (1, 'Dune', 'Frank Herbert/Dune (1)')",
-        "INSERT INTO authors VALUES (1, 'Frank Herbert')",
-        "INSERT INTO books_authors_link VALUES (1, 1)",
-        "INSERT INTO data VALUES (1, 1, 'EPUB', 'dune')",
-    )
+    library_path = create_calibre_library(tmp_path / "library", *dune_rows("EPUB"))
 
     books = list_books(library_path)
 
@@ -65,8 +31,8 @@ def test_list_books_returns_title_author_and_resolved_path_for_single_book(tmp_p
 
 
 def test_list_books_joins_multiple_authors_with_ampersand(tmp_path):
-    library_path = _create_library(tmp_path)
-    _run_sql(
+    library_path = create_calibre_library(tmp_path / "library")
+    add_calibre_rows(
         library_path,
         "INSERT INTO books VALUES (1, 'Good Omens', 'Pratchett Gaiman/Good Omens (1)')",
         "INSERT INTO authors VALUES (1, 'Terry Pratchett')",
@@ -82,8 +48,8 @@ def test_list_books_joins_multiple_authors_with_ampersand(tmp_path):
 
 
 def test_list_books_uses_unknown_for_book_with_no_author_link(tmp_path):
-    library_path = _create_library(tmp_path)
-    _run_sql(
+    library_path = create_calibre_library(tmp_path / "library")
+    add_calibre_rows(
         library_path,
         "INSERT INTO books VALUES (1, 'Anonymous Work', 'Unknown/Anonymous Work (1)')",
         "INSERT INTO data VALUES (1, 1, 'TXT', 'anon')",
@@ -95,8 +61,8 @@ def test_list_books_uses_unknown_for_book_with_no_author_link(tmp_path):
 
 
 def test_list_books_prefers_epub_over_txt_by_default(tmp_path):
-    library_path = _create_library(tmp_path)
-    _run_sql(
+    library_path = create_calibre_library(tmp_path / "library")
+    add_calibre_rows(
         library_path,
         "INSERT INTO books VALUES (1, 'Dual Format', 'Author/Dual Format (1)')",
         "INSERT INTO data VALUES (1, 1, 'TXT', 'dual')",
@@ -108,23 +74,26 @@ def test_list_books_prefers_epub_over_txt_by_default(tmp_path):
     assert books[0].file_path == library_path / "Author/Dual Format (1)" / "dual.epub"
 
 
-def test_list_books_honors_custom_preferred_formats_order(tmp_path):
-    library_path = _create_library(tmp_path)
-    _run_sql(
+def test_list_books_falls_back_to_txt_when_no_epub_is_available(tmp_path):
+    library_path = create_calibre_library(tmp_path / "library")
+    add_calibre_rows(
         library_path,
-        "INSERT INTO books VALUES (1, 'Dual Format', 'Author/Dual Format (1)')",
-        "INSERT INTO data VALUES (1, 1, 'TXT', 'dual')",
-        "INSERT INTO data VALUES (2, 1, 'EPUB', 'dual')",
+        "INSERT INTO books VALUES (1, 'Text Only', 'Author/Text Only (1)')",
+        "INSERT INTO data VALUES (1, 1, 'TXT', 'textonly')",
     )
 
-    books = list_books(library_path, preferred_formats=("TXT", "EPUB"))
+    books = list_books(library_path)
 
-    assert books[0].file_path == library_path / "Author/Dual Format (1)" / "dual.txt"
+    assert books[0].file_path == library_path / "Author/Text Only (1)" / "textonly.txt"
+
+
+def test_preferred_formats_are_the_supported_book_suffixes_in_calibre_naming():
+    assert PREFERRED_FORMATS == ("EPUB", "TXT")
 
 
 def test_list_books_excludes_book_with_only_non_preferred_format(tmp_path):
-    library_path = _create_library(tmp_path)
-    _run_sql(
+    library_path = create_calibre_library(tmp_path / "library")
+    add_calibre_rows(
         library_path,
         "INSERT INTO books VALUES (1, 'PDF Only', 'Author/PDF Only (1)')",
         "INSERT INTO data VALUES (1, 1, 'PDF', 'pdfonly')",
@@ -136,8 +105,8 @@ def test_list_books_excludes_book_with_only_non_preferred_format(tmp_path):
 
 
 def test_list_books_orders_by_title_case_insensitive_ascending(tmp_path):
-    library_path = _create_library(tmp_path)
-    _run_sql(
+    library_path = create_calibre_library(tmp_path / "library")
+    add_calibre_rows(
         library_path,
         "INSERT INTO books VALUES (1, 'zebra', 'Author/zebra (1)')",
         "INSERT INTO books VALUES (2, 'Apple', 'Author/Apple (2)')",
@@ -153,7 +122,7 @@ def test_list_books_orders_by_title_case_insensitive_ascending(tmp_path):
 
 
 def test_list_books_returns_empty_list_when_library_has_no_books(tmp_path):
-    library_path = _create_library(tmp_path)
+    library_path = create_calibre_library(tmp_path / "library")
 
     books = list_books(library_path)
 

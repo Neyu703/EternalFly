@@ -8,7 +8,7 @@ import pyarrow.compute
 import pyarrow.feather
 
 NEUROTRANSMITTER_COLUMN_ORDER = ["ach", "gaba", "glut", "da", "oct", "ser"]
-NEUROTRANSMITTER_PROBABILITY_COLUMNS = ["gaba_avg", "ach_avg", "glut_avg", "oct_avg", "ser_avg", "da_avg"]
+NEUROTRANSMITTER_PROBABILITY_COLUMNS = [f"{label}_avg" for label in NEUROTRANSMITTER_COLUMN_ORDER]
 
 
 def load_root_ids(path: pathlib.Path) -> numpy.ndarray:

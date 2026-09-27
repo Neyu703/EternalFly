@@ -3,6 +3,7 @@
 import hashlib
 import pathlib
 import string
+import zipfile
 
 import ebooklib
 import ebooklib.epub
@@ -15,6 +16,10 @@ from eternalfly.story_start import SpineDocument, TocEntry, plain_text_story, st
 # Half-width of the per-neuron random noise added to every token's currents (see
 # project_token_to_currents) — purely a texture/diversity signal, carries no sentiment.
 NOISE_HALF_WIDTH = 0.15
+
+# The two dopaminergic valence channels a word's sentiment can excite (see
+# project_valence_to_currents).
+VALENCE_CHANNELS = ("positive", "negative")
 
 # Labels Archive of Our Own puts on a chapter's author notes and summary; the note itself
 # follows in a blockquote.
@@ -59,12 +64,11 @@ def project_valence_to_currents(
     current — unlike the old single-channel design, both valence directions are always
     an active, excitatory signal, so neither can be silently overridden by whatever the
     network happened to be doing already). Raises ValueError for any other channel."""
-    if channel not in ("positive", "negative"):
-        raise ValueError(f"channel must be 'positive' or 'negative', got {channel!r}")
+    if channel not in VALENCE_CHANNELS:
+        raise ValueError(f"channel must be one of {VALENCE_CHANNELS}, got {channel!r}")
     valence = word_valence(token)
     magnitude = max(0.0, valence if channel == "positive" else -valence)
-    current_value = magnitude * valence_weight * current_scale
-    return numpy.full(pool_size, current_value, dtype=numpy.float64)
+    return _constant_pool_currents(pool_size, magnitude, valence_weight, current_scale)
 
 
 def project_arousal_to_currents(token: str, pool_size: int, current_scale: float, arousal_weight: float) -> numpy.ndarray:
@@ -75,17 +79,26 @@ def project_arousal_to_currents(token: str, pool_size: int, current_scale: float
     since octopamine drives general arousal in Drosophila rather than a positive/
     negative direction (that's what the valence channels are for). A neutral or
     unscored word contributes zero current here."""
-    magnitude = abs(word_valence(token))
-    current_value = magnitude * arousal_weight * current_scale
-    return numpy.full(pool_size, current_value, dtype=numpy.float64)
+    return _constant_pool_currents(pool_size, abs(word_valence(token)), arousal_weight, current_scale)
+
+
+def _constant_pool_currents(pool_size: int, magnitude: float, weight: float, current_scale: float) -> numpy.ndarray:
+    """A pool_size-length array holding the same current, magnitude * weight *
+    current_scale, for every neuron of a pool."""
+    return numpy.full(pool_size, magnitude * weight * current_scale, dtype=numpy.float64)
 
 
 def extract_epub_text(epub_path: pathlib.Path) -> str:
     """Read an epub file and return the plain text of its documents in reading (spine)
     order, joined by a space, starting where the story begins: cover, title and copyright
     pages, table of contents, dedication and other front matter are left out (see
-    story_start), as are non-linear pages, page titles and SVG image descriptions."""
-    book = ebooklib.epub.read_epub(str(epub_path))
+    story_start), as are non-linear pages, page titles and SVG image descriptions. Raises
+    ValueError when the file is not a readable EPUB (not a zip archive, or its manifest
+    names files the archive doesn't contain), FileNotFoundError when it is missing."""
+    try:
+        book = ebooklib.epub.read_epub(str(epub_path))
+    except (zipfile.BadZipFile, ebooklib.epub.EpubException, KeyError) as unreadable_error:
+        raise ValueError(f"Not a readable EPUB: {epub_path.name} ({unreadable_error})") from unreadable_error
     documents = _spine_documents(book)
     start_index = story_start_index(_flatten_toc(book.toc), documents)
     return " ".join(document.text for document in documents[start_index:])
@@ -97,9 +110,15 @@ def _spine_documents(book: ebooklib.epub.EpubBook) -> list[SpineDocument]:
     documents = []
     for item_id, linear in book.spine:
         item = book.get_item_with_id(item_id)
-        if item is not None and linear != "no" and item.get_type() == ebooklib.ITEM_DOCUMENT:
+        if _is_linear_content_document(item, linear):
             documents.append(_spine_document(item))
     return documents
+
+
+def _is_linear_content_document(item: ebooklib.epub.EpubItem | None, linear: str) -> bool:
+    """Whether a spine entry is a content document read in order (not a missing item, a
+    non-linear page such as a pop-up footnote, or a navigation document)."""
+    return item is not None and linear != "no" and item.get_type() == ebooklib.ITEM_DOCUMENT
 
 
 def _spine_document(item: ebooklib.epub.EpubItem) -> SpineDocument:
@@ -124,12 +143,18 @@ def _remove_fan_fiction_notes(body: Tag) -> None:
     for notes_pointer in body.find_all("div", class_="endnote-link"):
         notes_pointer.decompose()
     for label in body.find_all(["p", "h3", "h4", "h5", "h6"]):
-        if label.decomposed or label.get_text(" ", strip=True).lower() not in FAN_FICTION_NOTE_LABELS:
+        if not _is_fan_fiction_note_label(label):
             continue
         note = label.find_next_sibling()
         if note is not None and note.name == "blockquote":
             note.decompose()
         label.decompose()
+
+
+def _is_fan_fiction_note_label(label: Tag) -> bool:
+    """Whether label is a still-present Archive of Our Own note label (see
+    FAN_FICTION_NOTE_LABELS); a label inside an already removed note counts as gone."""
+    return not label.decomposed and label.get_text(" ", strip=True).lower() in FAN_FICTION_NOTE_LABELS
 
 
 def _flatten_toc(toc_items) -> list[TocEntry]:
@@ -146,20 +171,23 @@ def _flatten_toc(toc_items) -> list[TocEntry]:
     return entries
 
 
-def read_text_file(text_path: pathlib.Path) -> str:
-    """Read and return the UTF-8 encoded contents of a plain text file."""
-    return text_path.read_text(encoding="utf-8")
+def extract_plain_text_story(text_path: pathlib.Path) -> str:
+    """Read a UTF-8 plain text file and return its story, from the first chapter on (see
+    story_start.plain_text_story)."""
+    return plain_text_story(text_path.read_text(encoding="utf-8"))
+
+
+# The story text extractor per supported book file suffix, in order of preference (a
+# Calibre book available in several formats is read as the first one listed here).
+BOOK_LOADERS_BY_SUFFIX = {".epub": extract_epub_text, ".txt": extract_plain_text_story}
+SUPPORTED_BOOK_SUFFIXES = tuple(BOOK_LOADERS_BY_SUFFIX)
 
 
 def load_and_tokenize_file(file_path: pathlib.Path) -> list[str]:
-    """Read file_path (.epub or .txt, case-insensitive) and return the tokenized text of its
-    story, from the first chapter on. Raises ValueError for any other suffix, and
-    FileNotFoundError if the file is missing."""
-    suffix = file_path.suffix.lower()
-    if suffix == ".epub":
-        raw_text = extract_epub_text(file_path)
-    elif suffix == ".txt":
-        raw_text = plain_text_story(read_text_file(file_path))
-    else:
+    """Read file_path (any of SUPPORTED_BOOK_SUFFIXES, case-insensitive) and return the
+    tokenized text of its story, from the first chapter on. Raises ValueError for any
+    other suffix or an unreadable book, and FileNotFoundError if the file is missing."""
+    load_story_text = BOOK_LOADERS_BY_SUFFIX.get(file_path.suffix.lower())
+    if load_story_text is None:
         raise ValueError(f"Unsupported file type: {file_path.suffix}")
-    return tokenize_text(raw_text)
+    return tokenize_text(load_story_text(file_path))

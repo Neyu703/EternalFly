@@ -5,7 +5,8 @@ import torch
 
 from eternalfly.emotion_decoder import EMOTION_NAMES, PoolCalibration, compute_emotions, compute_rating, emotions_to_valence
 from eternalfly.lif import LIFParameters
-from eternalfly.reading_session import ReadingSession, ReadingSessionConfig, RegionSynapseWeights, TickResult
+from eternalfly.activity_readout import RegionSynapseWeights
+from eternalfly.reading_session import ReadingSession, ReadingSessionConfig, TickResult
 
 NEURON_COUNT = 8
 ZERO_ADJACENCY = torch.zeros((NEURON_COUNT, NEURON_COUNT))
@@ -44,8 +45,31 @@ def _make_config(**overrides) -> ReadingSessionConfig:
     return ReadingSessionConfig(**defaults)
 
 
+def _make_session(
+    tokens: list[str],
+    pool_indices: dict[str, torch.Tensor] = POOL_INDICES,
+    region_synapse_weights: RegionSynapseWeights | None = None,
+    **config_overrides,
+) -> ReadingSession:
+    """A session reading tokens on the tiny unconnected test network, configured by
+    _make_config(**config_overrides)."""
+    return ReadingSession(
+        NEURON_COUNT, ZERO_ADJACENCY, pool_indices, tokens, _make_config(**config_overrides), region_synapse_weights
+    )
+
+
+# Input strong enough to make every excited neuron spike on its first tick, one tick per
+# word, and a display window of just that tick.
+STRONG_INPUT_CONFIG = dict(ticks_per_word=1, input_current_scale=100.0, display_window_size=1)
+
+
+def _make_strong_input_session(word: str, region_synapse_weights: RegionSynapseWeights | None = None) -> ReadingSession:
+    """A one-word session with STRONG_INPUT_CONFIG."""
+    return _make_session([word], region_synapse_weights=region_synapse_weights, **STRONG_INPUT_CONFIG)
+
+
 def test_tick_reports_current_word_and_page_progress_advancing_with_ticks_per_word():
-    session = ReadingSession(NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["hello", "world"], _make_config())
+    session = _make_session(["hello", "world"])
 
     first_tick = session.tick()
     second_tick = session.tick()
@@ -60,7 +84,7 @@ def test_tick_reports_current_word_and_page_progress_advancing_with_ticks_per_wo
 
 
 def test_tick_returns_none_word_and_full_progress_after_book_finished():
-    session = ReadingSession(NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["hello"], _make_config(ticks_per_word=1))
+    session = _make_session(["hello"], ticks_per_word=1)
 
     session.tick()
     after_book_end = session.tick()
@@ -70,7 +94,7 @@ def test_tick_returns_none_word_and_full_progress_after_book_finished():
 
 
 def test_tick_reports_words_read_and_total_words_on_first_tick():
-    session = ReadingSession(NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["hello", "world"], _make_config())
+    session = _make_session(["hello", "world"])
 
     first_tick = session.tick()
 
@@ -79,7 +103,7 @@ def test_tick_reports_words_read_and_total_words_on_first_tick():
 
 
 def test_tick_words_read_reaches_and_stays_at_total_words_after_book_finished():
-    session = ReadingSession(NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["hello"], _make_config(ticks_per_word=1))
+    session = _make_session(["hello"], ticks_per_word=1)
 
     session.tick()
     after_book_end = session.tick()
@@ -89,7 +113,7 @@ def test_tick_words_read_reaches_and_stays_at_total_words_after_book_finished():
 
 
 def test_tick_computes_emotions_and_rating_from_zero_pool_activity():
-    session = ReadingSession(NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["hello", "world"], _make_config())
+    session = _make_session(["hello", "world"])
 
     tick_result = session.tick()
 
@@ -102,10 +126,7 @@ def test_tick_computes_emotions_and_rating_from_zero_pool_activity():
 
 
 def test_tick_sets_wants_new_book_once_engagement_stays_low_long_enough():
-    session = ReadingSession(
-        NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["hello", "world", "again"],
-        _make_config(ticks_per_word=1, min_ticks_before_boredom_check=3),
-    )
+    session = _make_session(["hello", "world", "again"], ticks_per_word=1, min_ticks_before_boredom_check=3)
 
     results = [session.tick() for _ in range(4)]
 
@@ -115,10 +136,7 @@ def test_tick_sets_wants_new_book_once_engagement_stays_low_long_enough():
 
 
 def test_tick_does_not_flag_wants_new_book_before_min_ticks_reached():
-    session = ReadingSession(
-        NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["hello"],
-        _make_config(ticks_per_word=1, min_ticks_before_boredom_check=1000),
-    )
+    session = _make_session(["hello"], ticks_per_word=1, min_ticks_before_boredom_check=1000)
 
     tick_result = session.tick()
 
@@ -126,7 +144,7 @@ def test_tick_does_not_flag_wants_new_book_before_min_ticks_reached():
 
 
 def test_tick_reports_empty_neuropil_activity_when_no_region_synapse_weights_given():
-    session = ReadingSession(NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["hello", "world"], _make_config())
+    session = _make_session(["hello", "world"])
 
     tick_result = session.tick()
 
@@ -135,14 +153,7 @@ def test_tick_reports_empty_neuropil_activity_when_no_region_synapse_weights_giv
 
 def test_tick_reports_zero_region_firing_rates_while_nothing_fires():
     region_synapse_weights = RegionSynapseWeights(names=["ME_L", "MB_CA_R"], weights=torch.zeros((2, NEURON_COUNT)))
-    session = ReadingSession(
-        NEURON_COUNT,
-        ZERO_ADJACENCY,
-        POOL_INDICES,
-        ["hello", "world"],
-        _make_config(),
-        region_synapse_weights=region_synapse_weights,
-    )
+    session = _make_session(["hello", "world"], region_synapse_weights=region_synapse_weights)
 
     tick_result = session.tick()
 
@@ -156,13 +167,8 @@ def test_tick_reports_each_regions_synapse_weighted_firing_rate_in_hz():
     weights[0, 5] = 0.25
     weights[0, 0] = 0.75
     weights[1, 1] = 1.0
-    session = ReadingSession(
-        NEURON_COUNT,
-        ZERO_ADJACENCY,
-        POOL_INDICES,
-        ["good"],
-        _make_config(ticks_per_word=1, input_current_scale=100.0, display_window_size=1),
-        region_synapse_weights=RegionSynapseWeights(names=["A", "B"], weights=weights.to_sparse_csr()),
+    session = _make_strong_input_session(
+        "good", region_synapse_weights=RegionSynapseWeights(names=["A", "B"], weights=weights.to_sparse_csr())
     )
 
     tick_result = session.tick()
@@ -171,13 +177,7 @@ def test_tick_reports_each_regions_synapse_weighted_firing_rate_in_hz():
 
 
 def test_tick_reports_the_whole_brains_mean_firing_rate_in_hz():
-    session = ReadingSession(
-        NEURON_COUNT,
-        ZERO_ADJACENCY,
-        POOL_INDICES,
-        ["good"],
-        _make_config(ticks_per_word=1, input_current_scale=100.0, display_window_size=1),
-    )
+    session = _make_strong_input_session("good")
 
     tick_result = session.tick()
 
@@ -187,14 +187,14 @@ def test_tick_reports_the_whole_brains_mean_firing_rate_in_hz():
 
 
 def test_tick_reports_the_dopamine_neurons_firing_rates_in_hz():
-    tick_result = _first_tick_with_strong_input("good")
+    tick_result = _make_strong_input_session("good").tick()
 
     assert tick_result.region_activity["approach"] == pytest.approx(1000.0)
     assert tick_result.region_activity["avoidance"] == pytest.approx(0.0)
 
 
 def test_load_new_text_replaces_tokens_and_resets_tick_number_but_keeps_current_word_from_new_book():
-    session = ReadingSession(NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["hello", "world"], _make_config(ticks_per_word=1))
+    session = _make_session(["hello", "world"], ticks_per_word=1)
     session.tick()
     session.tick()
 
@@ -207,32 +207,29 @@ def test_load_new_text_replaces_tokens_and_resets_tick_number_but_keeps_current_
 
 
 def test_load_new_text_preserves_lif_state_and_engagement_tracking_across_books():
-    session = ReadingSession(
-        NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["hello", "world", "again"],
-        _make_config(ticks_per_word=1, min_ticks_before_boredom_check=3),
-    )
+    session = _make_session(["hello", "world", "again"], ticks_per_word=1, min_ticks_before_boredom_check=3)
     for _ in range(4):
         session.tick()
     state_before_reload = session._state
     previous_spikes_before_reload = session._previous_spikes
-    engagement_average_before_reload = session._engagement_average
+    readout_before_reload = session._readout
 
     session.load_new_text(["fresh", "start"])
 
     assert session._state is state_before_reload
     assert session._previous_spikes is previous_spikes_before_reload
-    assert session._engagement_average is engagement_average_before_reload
+    assert session._readout is readout_before_reload
 
 
 def test_load_new_text_raises_value_error_on_empty_token_list():
-    session = ReadingSession(NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["hello", "world"], _make_config())
+    session = _make_session(["hello", "world"])
 
     with pytest.raises(ValueError, match="tokens must not be empty"):
         session.load_new_text([])
 
 
 def test_tick_reports_book_finished_false_while_book_still_has_words():
-    session = ReadingSession(NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["hello", "world"], _make_config())
+    session = _make_session(["hello", "world"])
 
     tick_result = session.tick()
 
@@ -240,7 +237,7 @@ def test_tick_reports_book_finished_false_while_book_still_has_words():
 
 
 def test_tick_reports_book_finished_true_once_book_is_finished():
-    session = ReadingSession(NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["hello"], _make_config(ticks_per_word=1))
+    session = _make_session(["hello"], ticks_per_word=1)
 
     session.tick()
     after_book_end = session.tick()
@@ -249,9 +246,7 @@ def test_tick_reports_book_finished_true_once_book_is_finished():
 
 
 def test_restart_resets_word_progress_to_first_word_keeping_same_tokens():
-    session = ReadingSession(
-        NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["hello", "world"], _make_config(ticks_per_word=1)
-    )
+    session = _make_session(["hello", "world"], ticks_per_word=1)
     session.tick()
     session.tick()
 
@@ -263,23 +258,20 @@ def test_restart_resets_word_progress_to_first_word_keeping_same_tokens():
 
 
 def test_restart_preserves_lif_state_and_engagement_tracking():
-    session = ReadingSession(
-        NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["hello", "world", "again"],
-        _make_config(ticks_per_word=1, min_ticks_before_boredom_check=3),
-    )
+    session = _make_session(["hello", "world", "again"], ticks_per_word=1, min_ticks_before_boredom_check=3)
     for _ in range(4):
         session.tick()
     state_before_restart = session._state
-    engagement_average_before_restart = session._engagement_average
+    readout_before_restart = session._readout
 
     session.restart()
 
     assert session._state is state_before_restart
-    assert session._engagement_average is engagement_average_before_restart
+    assert session._readout is readout_before_restart
 
 
 def test_set_paused_true_freezes_tick_result_instead_of_advancing():
-    session = ReadingSession(NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["hello", "world"], _make_config())
+    session = _make_session(["hello", "world"])
     first_tick = session.tick()
 
     session.set_paused(True)
@@ -291,9 +283,7 @@ def test_set_paused_true_freezes_tick_result_instead_of_advancing():
 
 
 def test_set_paused_false_after_pause_resumes_advancing():
-    session = ReadingSession(
-        NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["hello", "world"], _make_config(ticks_per_word=1)
-    )
+    session = _make_session(["hello", "world"], ticks_per_word=1)
     session.tick()
 
     session.set_paused(True)
@@ -305,9 +295,7 @@ def test_set_paused_false_after_pause_resumes_advancing():
 
 
 def test_set_speed_multiplier_above_one_advances_words_faster():
-    session = ReadingSession(
-        NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["hello", "world"], _make_config(ticks_per_word=4)
-    )
+    session = _make_session(["hello", "world"], ticks_per_word=4)
     session.set_speed_multiplier(4.0)
 
     first_tick = session.tick()
@@ -321,9 +309,7 @@ def test_set_speed_multiplier_beyond_the_tick_floor_advances_multiple_words_per_
     # ticks_per_word=2, so speed_multiplier=2 already hits the floor of 1 tick/word;
     # speed_multiplier=6 is 3x beyond that floor, so one tick() call should batch 3 raw
     # ticks internally (see ReadingSession._ticks_per_call) and land on the third word.
-    session = ReadingSession(
-        NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["a", "b", "c", "d", "e"], _make_config(ticks_per_word=2)
-    )
+    session = _make_session(["a", "b", "c", "d", "e"], ticks_per_word=2)
     session.set_speed_multiplier(6.0)
 
     first_tick = session.tick()
@@ -333,7 +319,7 @@ def test_set_speed_multiplier_beyond_the_tick_floor_advances_multiple_words_per_
 
 
 def test_set_speed_multiplier_beyond_the_tick_floor_stops_batching_at_book_end():
-    session = ReadingSession(NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["a", "b"], _make_config(ticks_per_word=2))
+    session = _make_session(["a", "b"], ticks_per_word=2)
     session.set_speed_multiplier(6.0)
 
     tick_result = session.tick()
@@ -346,7 +332,7 @@ def test_set_speed_multiplier_far_beyond_book_length_breaks_out_of_the_batch_loo
     # ticks_per_call would be 10 raw ticks here, but the 2-word book finishes after only
     # 3 (word "a", word "b", then finished) - the batch loop must stop advancing once
     # book_finished flips True instead of wastefully looping through the rest.
-    session = ReadingSession(NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["a", "b"], _make_config(ticks_per_word=2))
+    session = _make_session(["a", "b"], ticks_per_word=2)
     session.set_speed_multiplier(20.0)
 
     session.tick()
@@ -355,7 +341,7 @@ def test_set_speed_multiplier_far_beyond_book_length_breaks_out_of_the_batch_loo
 
 
 def test_set_speed_multiplier_non_positive_raises_value_error():
-    session = ReadingSession(NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["hello"], _make_config())
+    session = _make_session(["hello"])
 
     with pytest.raises(ValueError, match="speed multiplier must be positive"):
         session.set_speed_multiplier(0.0)
@@ -364,7 +350,7 @@ def test_set_speed_multiplier_non_positive_raises_value_error():
 def test_pool_spike_rate_of_nan_is_never_produced_even_with_empty_pool():
     empty_pool_indices = dict(POOL_INDICES)
     empty_pool_indices["valence_positive"] = torch.tensor([], dtype=torch.int64)
-    session = ReadingSession(NEURON_COUNT, ZERO_ADJACENCY, empty_pool_indices, ["hello"], _make_config(ticks_per_word=1))
+    session = _make_session(["hello"], pool_indices=empty_pool_indices, ticks_per_word=1)
 
     tick_result = session.tick()
 
@@ -372,17 +358,8 @@ def test_pool_spike_rate_of_nan_is_never_produced_even_with_empty_pool():
     assert tick_result.region_activity["approach"] == 0.0
 
 
-def _first_tick_with_strong_input(word: str) -> TickResult:
-    """The first tick of a one-word session whose input is strong enough to make every
-    excited neuron spike immediately."""
-    session = ReadingSession(
-        NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, [word], _make_config(ticks_per_word=1, input_current_scale=100.0, display_window_size=1)
-    )
-    return session.tick()
-
-
 def test_tick_reads_reward_from_the_reward_dopamine_neurons_a_positive_word_excites():
-    tick_result = _first_tick_with_strong_input("good")
+    tick_result = _make_strong_input_session("good").tick()
 
     assert tick_result.emotions["reward"] == pytest.approx(1.0)
     assert tick_result.emotions["aversion"] == pytest.approx(0.0)
@@ -390,7 +367,7 @@ def test_tick_reads_reward_from_the_reward_dopamine_neurons_a_positive_word_exci
 
 
 def test_tick_reads_aversion_from_the_punishment_dopamine_neurons_a_negative_word_excites():
-    tick_result = _first_tick_with_strong_input("bad")
+    tick_result = _make_strong_input_session("bad").tick()
 
     assert tick_result.emotions["aversion"] == pytest.approx(1.0)
     assert tick_result.emotions["reward"] == pytest.approx(0.0)
@@ -398,21 +375,21 @@ def test_tick_reads_aversion_from_the_punishment_dopamine_neurons_a_negative_wor
 
 
 def test_tick_reads_arousal_from_the_octopamine_neurons_any_charged_word_excites():
-    tick_result = _first_tick_with_strong_input("bad")
+    tick_result = _make_strong_input_session("bad").tick()
 
     assert tick_result.emotions["arousal"] == pytest.approx(1.0)
     assert tick_result.region_activity["arousal"] == pytest.approx(1.0)
 
 
 def test_tick_shows_no_emotion_for_a_neutral_word():
-    tick_result = _first_tick_with_strong_input("table")
+    tick_result = _make_strong_input_session("table").tick()
 
     assert tick_result.emotions == {"reward": 0.0, "aversion": 0.0, "arousal": 0.0}
     assert tick_result.rating_0_10 == pytest.approx(5.0)
 
 
 def test_session_logs_book_loads_restarts_pauses_and_speed_changes(caplog):
-    session = ReadingSession(NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["hello"], _make_config())
+    session = _make_session(["hello"])
 
     with caplog.at_level("INFO", logger="eternalfly.reading_session"):
         session.load_new_text(["new", "book"])
@@ -431,7 +408,7 @@ def test_session_logs_book_loads_restarts_pauses_and_speed_changes(caplog):
 
 
 def test_tick_logs_each_finished_word_at_debug(caplog):
-    session = ReadingSession(NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["hello", "world"], _make_config(ticks_per_word=1))
+    session = _make_session(["hello", "world"], ticks_per_word=1)
 
     with caplog.at_level("DEBUG", logger="eternalfly.word_activity_log"):
         session.tick()
@@ -439,3 +416,36 @@ def test_tick_logs_each_finished_word_at_debug(caplog):
 
     assert len(caplog.records) == 1
     assert "'hello'" in caplog.records[0].getMessage()
+
+
+def test_set_speed_multiplier_mid_book_keeps_the_word_being_read():
+    session = _make_session(["one", "two", "three", "four"], ticks_per_word=4)
+    for _ in range(5):
+        session.tick()  # four ticks of "one", then the first tick of "two"
+
+    session.set_speed_multiplier(4.0)  # one tick per word from now on
+
+    assert session.tick().current_word == "two"
+    assert session.tick().current_word == "three"
+
+
+def test_paused_session_shows_the_new_books_first_word_after_load_new_text():
+    session = _make_session(["old", "book"], ticks_per_word=1)
+    session.tick()
+    session.set_paused(True)
+
+    session.load_new_text(["new", "story"])
+
+    assert session.tick().current_word == "new"
+    assert session.tick().current_word == "new"
+
+
+def test_paused_session_shows_the_first_word_again_after_restart():
+    session = _make_session(["first", "second"], ticks_per_word=1)
+    session.tick()
+    session.tick()
+    session.set_paused(True)
+
+    session.restart()
+
+    assert session.tick().current_word == "first"

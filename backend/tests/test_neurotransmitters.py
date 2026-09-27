@@ -1,6 +1,4 @@
-import pytest
-
-from eternalfly.neurotransmitters import dominant_neurotransmitter, neurotransmitter_sign
+from eternalfly.neurotransmitters import neurotransmitter_sign
 
 
 def test_neurotransmitter_sign_ach_is_excitatory():
@@ -34,18 +32,3 @@ def test_neurotransmitter_sign_unknown_falls_back_to_excitatory():
 def test_neurotransmitter_sign_is_case_insensitive():
     assert neurotransmitter_sign("GABA") == -1
     assert neurotransmitter_sign("AcH") == 1
-
-
-def test_dominant_neurotransmitter_returns_argmax_key():
-    probabilities = {"ach": 0.1, "gaba": 0.7, "glut": 0.2}
-    assert dominant_neurotransmitter(probabilities) == "gaba"
-
-
-def test_dominant_neurotransmitter_tie_returns_first_in_dict_order():
-    probabilities = {"gaba": 0.5, "ach": 0.5}
-    assert dominant_neurotransmitter(probabilities) == "gaba"
-
-
-def test_dominant_neurotransmitter_raises_on_empty_dict():
-    with pytest.raises(ValueError):
-        dominant_neurotransmitter({})
