@@ -1,13 +1,18 @@
-"""Read-only access to a Calibre library's metadata.db for listing available books.
+"""Read-only access to a Calibre library's metadata.db for listing available books, and
+to Calibre's own settings for finding the library it currently uses.
 
 Strictly read-only: the sqlite connection is opened via the `file:...?mode=ro` URI
 form, and no code path here ever writes, renames, or deletes anything under the
-library path or its metadata.db.
+library path, its metadata.db or Calibre's settings.
 """
 
+import json
 import pathlib
 import sqlite3
 from dataclasses import dataclass
+
+# Calibre's global settings file inside its config directory (%APPDATA%\calibre on Windows).
+CALIBRE_SETTINGS_FILE_NAME = "global.py.json"
 
 
 @dataclass(frozen=True)
@@ -19,6 +24,20 @@ class CalibreBook:
     title: str
     author: str
     file_path: pathlib.Path
+
+
+def configured_library_path(calibre_config_directory: pathlib.Path) -> pathlib.Path | None:
+    """The library Calibre itself currently uses, as named by library_path in its global
+    settings under calibre_config_directory, so a moved or switched library is followed
+    automatically. None when the settings are missing, unreadable or name no library.
+    Only reads the settings file."""
+    settings_path = calibre_config_directory / CALIBRE_SETTINGS_FILE_NAME
+    try:
+        settings = json.loads(settings_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    library_path = settings.get("library_path") if isinstance(settings, dict) else None
+    return pathlib.Path(library_path) if isinstance(library_path, str) and library_path else None
 
 
 def list_books(

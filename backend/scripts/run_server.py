@@ -6,6 +6,7 @@ composes already-tested eternalfly functions, mirrors cli_reading_demo.py's setu
 Run as `python -m scripts.run_server` (from backend/, as the Makefile does) so uvicorn's
 reload subprocess can re-import this module by its "scripts.run_server:app" name."""
 
+import os
 import sys
 from pathlib import Path
 
@@ -14,6 +15,7 @@ import scipy.sparse
 import torch
 import uvicorn
 
+from eternalfly.calibre_library import configured_library_path
 from eternalfly.lif import LIFParameters
 from eternalfly.reading_session import ReadingSession, ReadingSessionConfig
 from eternalfly.server import create_app
@@ -21,7 +23,10 @@ from eternalfly.text_encoder import tokenize_text
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 CACHE_DIR = DATA_DIR / "cache"
-CALIBRE_LIBRARY_PATH = Path.home() / "Calibre-Bibliothek"
+# The library Calibre itself uses (so a moved or switched library is followed), else the
+# default location in the home folder.
+CALIBRE_CONFIG_DIRECTORY = Path(os.environ.get("APPDATA", "")) / "calibre"
+CALIBRE_LIBRARY_PATH = configured_library_path(CALIBRE_CONFIG_DIRECTORY) or Path.home() / "Calibre-Bibliothek"
 
 TEST_TEXT = """
 The dragon roared and the castle shook with fear. Suddenly, the brave knight

@@ -3,7 +3,7 @@ import sqlite3
 
 import pytest
 
-from eternalfly.calibre_library import CalibreBook, list_books
+from eternalfly.calibre_library import CalibreBook, configured_library_path, list_books
 
 
 def _create_library(tmp_path: pathlib.Path) -> pathlib.Path:
@@ -158,3 +158,35 @@ def test_list_books_returns_empty_list_when_library_has_no_books(tmp_path):
     books = list_books(library_path)
 
     assert books == []
+
+
+def _write_calibre_settings(config_directory: pathlib.Path, settings_text: str) -> None:
+    """Write Calibre's global settings file (global.py.json) with the given raw content."""
+    config_directory.mkdir(parents=True, exist_ok=True)
+    (config_directory / "global.py.json").write_text(settings_text, encoding="utf-8")
+
+
+def test_configured_library_path_returns_the_library_calibre_currently_uses(tmp_path):
+    config_directory = tmp_path / "calibre"
+    _write_calibre_settings(config_directory, r'{"library_path": "E:\\Calibre-Bibliothek", "language": "de"}')
+
+    assert configured_library_path(config_directory) == pathlib.Path("E:/Calibre-Bibliothek")
+
+
+def test_configured_library_path_returns_none_without_calibre_settings(tmp_path):
+    assert configured_library_path(tmp_path / "no_calibre_here") is None
+
+
+def test_configured_library_path_returns_none_for_unreadable_settings(tmp_path):
+    config_directory = tmp_path / "calibre"
+    _write_calibre_settings(config_directory, '{"library_path": ')
+
+    assert configured_library_path(config_directory) is None
+
+
+@pytest.mark.parametrize("settings_text", ['{"language": "de"}', '{"library_path": ""}', '{"library_path": 42}', "[1, 2]"])
+def test_configured_library_path_returns_none_when_no_library_is_named(tmp_path, settings_text):
+    config_directory = tmp_path / "calibre"
+    _write_calibre_settings(config_directory, settings_text)
+
+    assert configured_library_path(config_directory) is None
