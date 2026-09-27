@@ -99,38 +99,31 @@ def test_pool_rates_to_valence_arousal_returns_zero_for_zero_ceiling():
     assert arousal == pytest.approx(0.0)
 
 
-def test_compute_emotions_at_joy_target_gives_joy_intensity_of_exactly_one():
-    emotions = compute_emotions(valence=1.0, arousal=0.6)
-    assert emotions["joy"] == pytest.approx(1.0)
-
-
-def test_compute_emotions_at_a_target_suppresses_the_opposite_valence_emotion():
-    # Regression guard: a linear (rather than sharply-falling-off) distance falloff left
-    # every emotion, including opposite-valence ones, sitting at a similar mid-level
-    # intensity regardless of how far its own target actually was.
-    emotions = compute_emotions(valence=1.0, arousal=0.6)  # exactly the joy target
-    assert emotions["joy"] == pytest.approx(1.0)
-    assert emotions["disgust"] < 0.05  # disgust's target (-1.0, 0.5) is the opposite valence
-
-
-def test_compute_emotions_far_from_all_targets_gives_nonnegative_low_intensities():
-    emotions = compute_emotions(valence=10.0, arousal=10.0)
-    for emotion_intensity in emotions.values():
-        assert 0.0 <= emotion_intensity < 1e-10
-
-
-def test_compute_emotions_returns_dict_with_exactly_the_eight_plutchik_keys():
+def test_compute_emotions_returns_exactly_the_three_states_the_fly_brain_has():
     emotions = compute_emotions(valence=0.0, arousal=0.0)
-    assert set(emotions.keys()) == {
-        "joy",
-        "trust",
-        "fear",
-        "surprise",
-        "sadness",
-        "disgust",
-        "anger",
-        "anticipation",
-    }
+    assert set(emotions.keys()) == {"reward", "aversion", "arousal"}
+
+
+def test_compute_emotions_reads_positive_valence_as_reward():
+    emotions = compute_emotions(valence=0.4, arousal=0.0)
+    assert emotions["reward"] == pytest.approx(0.4)
+    assert emotions["aversion"] == pytest.approx(0.0)
+
+
+def test_compute_emotions_reads_negative_valence_as_aversion():
+    emotions = compute_emotions(valence=-0.7, arousal=0.0)
+    assert emotions["aversion"] == pytest.approx(0.7)
+    assert emotions["reward"] == pytest.approx(0.0)
+
+
+def test_compute_emotions_shows_neither_reward_nor_aversion_at_neutral_valence():
+    emotions = compute_emotions(valence=0.0, arousal=0.0)
+    assert emotions["reward"] == pytest.approx(0.0)
+    assert emotions["aversion"] == pytest.approx(0.0)
+
+
+def test_compute_emotions_passes_arousal_through():
+    assert compute_emotions(valence=0.2, arousal=0.35)["arousal"] == pytest.approx(0.35)
 
 
 def test_compute_rating_at_zero_valence_returns_midpoint_five():

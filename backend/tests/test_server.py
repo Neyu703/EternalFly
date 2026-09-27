@@ -21,32 +21,14 @@ def make_client(app) -> TestClient:
     return TestClient(app, headers=ORIGIN_HEADERS)
 
 
-_ZERO_EMOTIONS = {
-    "joy": 0.0,
-    "trust": 0.0,
-    "fear": 0.0,
-    "surprise": 0.0,
-    "sadness": 0.0,
-    "disgust": 0.0,
-    "anger": 0.0,
-    "anticipation": 0.0,
-}
+_ZERO_EMOTIONS = {"reward": 0.0, "aversion": 0.0, "arousal": 0.0}
 
 SAMPLE_TICK_RESULT = TickResult(
     current_word="hello",
     page_progress=0.5,
     words_read=5,
     total_words=10,
-    emotions={
-        "joy": 0.1,
-        "trust": 0.2,
-        "fear": 0.3,
-        "surprise": 0.4,
-        "sadness": 0.5,
-        "disgust": 0.6,
-        "anger": 0.7,
-        "anticipation": 0.8,
-    },
+    emotions={"reward": 0.1, "aversion": 0.2, "arousal": 0.3},
     rating_0_10=6.5,
     region_activity={"approach": 0.1, "avoidance": 0.2, "arousal": 0.3},
     neuropil_activity={"ME_L": 0.4, "MB_CA_R": 0.5},
@@ -63,16 +45,7 @@ def test_tick_result_to_json_returns_dict_with_exact_keys_and_values():
         "page_progress": 0.5,
         "words_read": 5,
         "total_words": 10,
-        "emotions": {
-            "joy": 0.1,
-            "trust": 0.2,
-            "fear": 0.3,
-            "surprise": 0.4,
-            "sadness": 0.5,
-            "disgust": 0.6,
-            "anger": 0.7,
-            "anticipation": 0.8,
-        },
+        "emotions": {"reward": 0.1, "aversion": 0.2, "arousal": 0.3},
         "rating_0_10": 6.5,
         "region_activity": {"approach": 0.1, "avoidance": 0.2, "arousal": 0.3},
         "neuropil_activity": {"ME_L": 0.4, "MB_CA_R": 0.5},

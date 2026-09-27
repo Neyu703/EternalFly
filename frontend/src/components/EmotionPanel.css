@@ -9,8 +9,8 @@
     color: var(--text-secondary);
 }
 
-/* One column of 8 rows in a narrow card; two columns of 4 once there's room. Rows share
-   the card's remaining height so the list always fills it evenly. */
+/* One row per emotional state; rows share the card's remaining height so the list always
+   fills it evenly. */
 .emotion-list {
     display: grid;
     flex: 1;
@@ -22,14 +22,6 @@
     margin: 0;
     padding: 0;
     list-style: none;
-}
-
-@container (min-width: 440px) {
-    .emotion-list {
-        grid-template-rows: repeat(4, minmax(13px, 1fr));
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        grid-auto-flow: column;
-    }
 }
 
 .emotion-row {

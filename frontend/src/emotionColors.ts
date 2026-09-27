@@ -1,16 +1,12 @@
 import type { EmotionName } from "./types";
 
-/** Display color per Plutchik emotion, shared by the HUD's emotion bars and
- * BookOverviewPanel's end-of-book emotion sparklines. Stepped for the dark UI surfaces
- * and validated as a set in EMOTION_NAMES order (dark lightness band, >= 3:1 against
- * the card surfaces, adjacent-pair color-vision-deficiency and normal-vision separation). */
+/** Display color per emotional state, shared by the HUD's emotion bars and
+ * BookOverviewPanel's end-of-book emotion sparklines. Arousal keeps the arousal metric's
+ * color, since it's the same signal. Validated as a set (OKLCH lightness 0.5-0.75, >= 3:1
+ * against the card surfaces, every pair separated in normal vision and under simulated
+ * protanopia, deuteranopia and tritanopia). */
 export const EMOTION_COLORS: Record<EmotionName, string> = {
-  joy: "#b48c05",
-  trust: "#05a480",
-  fear: "#8557c8",
-  surprise: "#04a3be",
-  sadness: "#366bd3",
-  disgust: "#6da730",
-  anger: "#c92e3b",
-  anticipation: "#d97605",
+  reward: "#6da730",
+  aversion: "#8557c8",
+  arousal: "#d14186",
 };

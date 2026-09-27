@@ -1,23 +1,7 @@
-"""Turns smoothed brain-region firing rates into Plutchik emotions and a 0-10 rating."""
+"""Turns smoothed brain-region firing rates into the fly's emotional states and a 0-10
+rating."""
 
 import collections
-import math
-
-EMOTION_TARGETS = {
-    "joy": (1.0, 0.6),
-    "trust": (0.6, 0.2),
-    "fear": (-0.8, 0.9),
-    "surprise": (0.0, 1.0),
-    "sadness": (-0.6, 0.1),
-    "disgust": (-1.0, 0.5),
-    "anger": (-0.7, 0.9),
-    "anticipation": (0.5, 0.6),
-}
-# Controls how sharply intensity drops off with distance from an emotion's target in the
-# Gaussian falloff below. Calibrated so a point clearly closest to one or two targets
-# lights mostly those up, instead of all eight targets (which cluster within about a
-# unit of each other) sitting at a similar mid-level intensity simultaneously.
-EMOTION_FALLOFF_SIGMA = 0.45
 
 
 class RollingAverage:
@@ -79,16 +63,14 @@ def pool_rates_to_valence_arousal(
 
 
 def compute_emotions(valence: float, arousal: float) -> dict[str, float]:
-    """Map a (valence, arousal) coordinate to intensities for all 8 Plutchik primary
-    emotions, using a Gaussian falloff from each emotion's fixed target coordinate (see
-    EMOTION_FALLOFF_SIGMA) instead of a linear one, so only the target(s) actually close
-    to the current coordinate light up rather than every emotion reading a similar
-    mid-level intensity regardless of distance."""
-    emotion_intensities = {}
-    for emotion_name, (target_valence, target_arousal) in EMOTION_TARGETS.items():
-        distance_to_target = math.hypot(valence - target_valence, arousal - target_arousal)
-        emotion_intensities[emotion_name] = math.exp(-(distance_to_target**2) / (2 * EMOTION_FALLOFF_SIGMA**2))
-    return emotion_intensities
+    """Return the intensities (0..1) of the only emotional states the simulated fly brain
+    actually has circuits for, instead of human emotion categories projected onto it:
+    reward (the reward-coding PAM dopamine neurons of the mushroom body's medial lobe
+    outweighing the punishment side, i.e. positive valence), aversion (the punishment-
+    coding PPL1 dopamine neurons of its vertical lobe outweighing the reward side,
+    negative valence) and arousal (the octopamine neurons driving the central complex).
+    Expects valence in [-1, 1] and arousal in [0, 1] (see pool_rates_to_valence_arousal)."""
+    return {"reward": max(0.0, valence), "aversion": max(0.0, -valence), "arousal": arousal}
 
 
 def compute_rating(valence: float) -> float:

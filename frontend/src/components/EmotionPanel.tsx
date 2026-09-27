@@ -1,11 +1,11 @@
-import { EMOTION_LABELS, EMOTION_NAMES, type EmotionName } from "../types";
+import { EMOTION_CIRCUITS, EMOTION_LABELS, EMOTION_NAMES, type EmotionName } from "../types";
 import { EMOTION_COLORS } from "../emotionColors";
 import { strongestEmotion } from "../utils/emotions";
 import { formatPercent } from "../utils/format";
 import "./EmotionPanel.css";
 
-/** HUD card with the fly's 8 current Plutchik emotions as labeled bars, headed by
- * whichever emotion is strongest right now. */
+/** HUD card with the fly's current emotional states (reward, aversion, arousal: the ones
+ * its brain has circuits for) as labeled bars, headed by whichever is strongest right now. */
 export function EmotionPanel({ emotions }: { emotions: Record<string, number> }) {
     const dominantEmotion = strongestEmotion(emotions);
 
@@ -31,11 +31,12 @@ export function EmotionPanel({ emotions }: { emotions: Record<string, number> })
     );
 }
 
-/** One emotion's current 0..1 intensity: label, colored bar and percentage. */
+/** One emotion's current 0..1 intensity: label, colored bar and percentage, with the
+ * brain circuit behind it as the tooltip. */
 function EmotionBar({ emotionName, value }: { emotionName: EmotionName; value: number }) {
     const clampedValue = Math.max(0, Math.min(1, value));
     return (
-        <li className="emotion-row">
+        <li className="emotion-row" title={EMOTION_CIRCUITS[emotionName]}>
             <span className="emotion-label">{EMOTION_LABELS[emotionName]}</span>
             <span className="emotion-track">
                 <span

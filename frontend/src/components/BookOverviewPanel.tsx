@@ -21,8 +21,8 @@ function mean(values: number[]): number {
 }
 
 /** End-of-book summary dialog: headline numbers first (average dopamine, peak arousal,
- * strongest emotion), then how dopamine, arousal, overall firing rate and all 8 Plutchik
- * emotions developed across the whole book, shown once when it finishes (see
+ * strongest emotion), then how dopamine, arousal, overall firing rate and the fly's
+ * emotional states (reward, aversion, arousal) developed across the whole book, shown once when it finishes (see
  * useBookHistory). Progress-bucketed rather than time-bucketed, so it reads the same shape
  * regardless of how long or short the book was. A native modal <dialog>: Escape, the
  * close button, the "Continue" button and a backdrop click all dismiss it. */

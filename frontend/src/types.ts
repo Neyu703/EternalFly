@@ -13,27 +13,22 @@ export type TickData = {
   bookFinished: boolean;
 };
 
-export const EMOTION_NAMES = [
-  "joy",
-  "trust",
-  "fear",
-  "surprise",
-  "sadness",
-  "disgust",
-  "anger",
-  "anticipation",
-] as const;
+/** The only emotional states the simulated fly brain has circuits for (see the backend's
+ * emotion_decoder.compute_emotions); no human emotion categories are projected onto it. */
+export const EMOTION_NAMES = ["reward", "aversion", "arousal"] as const;
 
 export type EmotionName = (typeof EMOTION_NAMES)[number];
 
-/** Display label per Plutchik emotion (the backend sends the lowercase keys). */
+/** Display label per emotional state (the backend sends the lowercase keys). */
 export const EMOTION_LABELS: Record<EmotionName, string> = {
-  joy: "Joy",
-  trust: "Trust",
-  fear: "Fear",
-  surprise: "Surprise",
-  sadness: "Sadness",
-  disgust: "Disgust",
-  anger: "Anger",
-  anticipation: "Anticipation",
+  reward: "Reward",
+  aversion: "Aversion",
+  arousal: "Arousal",
+};
+
+/** The brain circuit behind each emotional state, shown as its tooltip. */
+export const EMOTION_CIRCUITS: Record<EmotionName, string> = {
+  reward: "Reward dopamine neurons (PAM) at the mushroom body's medial lobe outweigh the punishment side",
+  aversion: "Punishment dopamine neurons (PPL1) at the mushroom body's vertical lobe outweigh the reward side",
+  arousal: "Octopamine neurons driving the central complex",
 };
