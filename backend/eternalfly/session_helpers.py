@@ -61,3 +61,9 @@ def word_index_for_tick(tick_number: int, ticks_per_word: int) -> int:
     """
     _validate_ticks_per_word(ticks_per_word)
     return tick_number // ticks_per_word
+
+
+def spike_fraction_to_hz(spike_fraction: float, dt_ms: float) -> float:
+    """Convert the fraction of neurons spiking per simulation step of dt_ms milliseconds
+    into their mean firing rate in spikes per second (Hz)."""
+    return spike_fraction * 1000.0 / dt_ms

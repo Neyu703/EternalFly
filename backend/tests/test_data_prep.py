@@ -12,6 +12,7 @@ from eternalfly.data_prep import (
     filter_ids_to_known_set,
     load_feather_table,
     load_root_ids,
+    neuropil_synapse_count_rows,
 )
 
 
@@ -266,3 +267,29 @@ def test_build_neuron_index_maps_ids_to_positions_as_plain_ints():
 
     assert neuron_id_to_index == {700: 0, 800: 1, 900: 2}
     assert all(type(neuron_id) is int for neuron_id in neuron_id_to_index)
+
+
+def test_neuropil_synapse_count_rows_maps_neurons_and_regions_to_their_indices():
+    neuropil_count_table = pyarrow.table({
+        "pre_pt_root_id": [100, 200, 999, 100],
+        "neuropil": ["EB", "AL_L", "EB", "UNASGD"],
+        "count": [5, 7, 2, 9],
+    })
+
+    neuron_indices, region_indices, counts = neuropil_synapse_count_rows(
+        neuropil_count_table, "pre_pt_root_id", {100: 0, 200: 1}, ["AL_L", "EB"]
+    )
+
+    assert neuron_indices.tolist() == [0, 1]
+    assert region_indices.tolist() == [1, 0]
+    assert counts.tolist() == [5, 7]
+
+
+def test_neuropil_synapse_count_rows_returns_empty_arrays_when_nothing_matches():
+    neuropil_count_table = pyarrow.table({"post_pt_root_id": [100], "neuropil": ["EB"], "count": [3]})
+
+    neuron_indices, region_indices, counts = neuropil_synapse_count_rows(
+        neuropil_count_table, "post_pt_root_id", {}, ["EB"]
+    )
+
+    assert neuron_indices.tolist() == region_indices.tolist() == counts.tolist() == []

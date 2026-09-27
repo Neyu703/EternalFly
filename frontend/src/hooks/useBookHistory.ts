@@ -17,16 +17,6 @@ export type BookHistoryPoint = {
  * A bucket stays null until a word lands in it. */
 export type BookHistoryBuckets = (BookHistoryPoint | null)[];
 
-/** Mean spiking rate across the fly's tracked brain regions this tick (0..1), preferring
- * the fine-grained per-neuropil breakdown and falling back to the coarser approach/
- * avoidance/arousal pools when no neuropil data is available. */
-function overallFiringRate(tick: TickData): number {
-  const neuropilRates = Object.values(tick.neuropilActivity);
-  const rates = neuropilRates.length > 0 ? neuropilRates : Object.values(tick.regionActivity);
-  if (rates.length === 0) return 0;
-  return rates.reduce((sum, rate) => sum + rate, 0) / rates.length;
-}
-
 function emptyBuckets(): BookHistoryBuckets {
   return new Array(NUM_BUCKETS).fill(null);
 }
@@ -72,7 +62,7 @@ export function useBookHistory(tick: TickData | null): {
         nextBuckets[bucketIndex] = {
           rating0To10: tick.rating0To10,
           arousal: tick.regionActivity.arousal ?? 0,
-          firingRate: overallFiringRate(tick),
+          firingRate: tick.firingRateHz,
           emotions: tick.emotions,
         };
         return nextBuckets;

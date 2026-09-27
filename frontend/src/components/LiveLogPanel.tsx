@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { TickData } from "../types";
-import { formatDecimal, formatPercent } from "../utils/format";
+import { formatDecimal, formatFiringRate, formatPercent } from "../utils/format";
 import "./LiveLogPanel.css";
 
 const MAX_LOG_LINES = 200;
@@ -80,8 +80,8 @@ export function LiveLogPanel({ tick }: { tick: TickData }) {
                 <tr key={index}>
                   <td className="live-log-word">{line.word}</td>
                   <td>{formatDecimal(line.rating0To10, 2)}</td>
-                  <td>{formatPercent(line.regionActivity.approach ?? 0)}</td>
-                  <td>{formatPercent(line.regionActivity.avoidance ?? 0)}</td>
+                  <td>{formatFiringRate(line.regionActivity.approach ?? 0)}</td>
+                  <td>{formatFiringRate(line.regionActivity.avoidance ?? 0)}</td>
                   <td>{formatPercent(line.regionActivity.arousal ?? 0)}</td>
                 </tr>
               ))}

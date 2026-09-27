@@ -6,16 +6,6 @@ import "./NeuralActivityChart.css";
 
 const HISTORY_LENGTH = 80;
 
-/** Mean spiking rate across the fly's tracked brain regions this tick (0..1), preferring
- * the fine-grained per-neuropil breakdown and falling back to the coarser approach/
- * avoidance/arousal pools when no neuropil data is available. */
-function overallFiringRate(tick: TickData): number {
-  const neuropilRates = Object.values(tick.neuropilActivity);
-  const rates = neuropilRates.length > 0 ? neuropilRates : Object.values(tick.regionActivity);
-  if (rates.length === 0) return 0;
-  return rates.reduce((sum, rate) => sum + rate, 0) / rates.length;
-}
-
 /** Footer of the brain stage: the fly's current dopamine rating, arousal and overall
  * firing rate as three tiles, each with its own rolling sparkline over the last
  * HISTORY_LENGTH ticks (~4s at the default tick rate). Dopamine and arousal plot against
@@ -35,43 +25,26 @@ export function NeuralActivityChart({ tick, isPaused }: { tick: TickData; isPaus
       const nextHistory = [...previousHistory, value];
       return nextHistory.length > HISTORY_LENGTH ? nextHistory.slice(-HISTORY_LENGTH) : nextHistory;
     };
-    setFiringRateHistory((previousHistory) => pushCapped(previousHistory, overallFiringRate(tick)));
+    setFiringRateHistory((previousHistory) => pushCapped(previousHistory, tick.firingRateHz));
     setRatingHistory((previousHistory) => pushCapped(previousHistory, tick.rating0To10));
     setArousalHistory((previousHistory) => pushCapped(previousHistory, tick.regionActivity.arousal ?? 0));
   }, [tick, isPaused]);
 
-  const currentFiringRate = firingRateHistory[firingRateHistory.length - 1] ?? 0;
-  const trackedRegionCount = Object.keys(tick.neuropilActivity).length;
 
   return (
     <div className="neural-activity">
       <MetricTile metric={DOPAMINE_METRIC} value={tick.rating0To10} history={ratingHistory} />
       <MetricTile metric={AROUSAL_METRIC} value={tick.regionActivity.arousal ?? 0} history={arousalHistory} />
-      <MetricTile
-        metric={FIRING_RATE_METRIC}
-        value={currentFiringRate}
-        history={firingRateHistory}
-        detail={trackedRegionCount > 0 ? `${trackedRegionCount} regions` : undefined}
-      />
+      <MetricTile metric={FIRING_RATE_METRIC} value={tick.firingRateHz} history={firingRateHistory} />
     </div>
   );
 }
 
 /** One live metric: its color key and label, the current value in text ink, and its
- * rolling sparkline. The metric's description (plus any detail) is a hover tooltip. */
-function MetricTile({
-  metric,
-  value,
-  history,
-  detail,
-}: {
-  metric: MetricDefinition;
-  value: number;
-  history: number[];
-  detail?: string;
-}) {
+ * rolling sparkline. The metric's description is a hover tooltip. */
+function MetricTile({ metric, value, history }: { metric: MetricDefinition; value: number; history: number[] }) {
   return (
-    <div className="metric-tile" title={detail ? `${metric.description} (${detail})` : metric.description}>
+    <div className="metric-tile" title={metric.description}>
       <div className="metric-tile-header">
         <span className="swatch" style={{ background: metric.color }} />
         <span className="overline">{metric.label}</span>

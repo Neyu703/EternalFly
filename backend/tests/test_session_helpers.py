@@ -7,6 +7,7 @@ from eternalfly.session_helpers import (
     compute_pool_spike_rate,
     inject_currents_at_indices,
     is_new_word_tick,
+    spike_fraction_to_hz,
     word_index_for_tick,
 )
 
@@ -115,3 +116,11 @@ def test_is_new_word_tick_non_positive_ticks_per_word_raises_value_error(ticks_p
 def test_word_index_for_tick_non_positive_ticks_per_word_raises_value_error(ticks_per_word):
     with pytest.raises(ValueError):
         word_index_for_tick(tick_number=0, ticks_per_word=ticks_per_word)
+
+
+def test_spike_fraction_to_hz_converts_a_per_millisecond_fraction_to_spikes_per_second():
+    assert spike_fraction_to_hz(0.005, dt_ms=1.0) == pytest.approx(5.0)
+
+
+def test_spike_fraction_to_hz_accounts_for_the_step_size():
+    assert spike_fraction_to_hz(0.01, dt_ms=0.5) == pytest.approx(20.0)

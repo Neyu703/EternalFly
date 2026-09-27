@@ -5,7 +5,7 @@ import torch
 
 from eternalfly.emotion_decoder import EMOTION_NAMES, PoolCalibration, compute_emotions, compute_rating, emotions_to_valence
 from eternalfly.lif import LIFParameters
-from eternalfly.reading_session import ReadingSession, ReadingSessionConfig, TickResult
+from eternalfly.reading_session import ReadingSession, ReadingSessionConfig, RegionSynapseWeights, TickResult
 
 NEURON_COUNT = 8
 ZERO_ADJACENCY = torch.zeros((NEURON_COUNT, NEURON_COUNT))
@@ -125,7 +125,7 @@ def test_tick_does_not_flag_wants_new_book_before_min_ticks_reached():
     assert tick_result.wants_new_book is False
 
 
-def test_tick_reports_empty_neuropil_activity_when_no_neuropil_pool_indices_given():
+def test_tick_reports_empty_neuropil_activity_when_no_region_synapse_weights_given():
     session = ReadingSession(NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["hello", "world"], _make_config())
 
     tick_result = session.tick()
@@ -133,33 +133,64 @@ def test_tick_reports_empty_neuropil_activity_when_no_neuropil_pool_indices_give
     assert tick_result.neuropil_activity == {}
 
 
-def test_tick_reports_empty_neuropil_activity_when_neuropil_pool_indices_is_empty_dict():
-    session = ReadingSession(
-        NEURON_COUNT, ZERO_ADJACENCY, POOL_INDICES, ["hello", "world"], _make_config(), neuropil_pool_indices={}
-    )
-
-    tick_result = session.tick()
-
-    assert tick_result.neuropil_activity == {}
-
-
-def test_tick_reports_per_region_neuropil_activity_when_neuropil_pool_indices_given():
-    neuropil_pool_indices = {
-        "ME_L": torch.tensor([0], dtype=torch.int64),
-        "MB_CA_R": torch.tensor([1], dtype=torch.int64),
-    }
+def test_tick_reports_zero_region_firing_rates_while_nothing_fires():
+    region_synapse_weights = RegionSynapseWeights(names=["ME_L", "MB_CA_R"], weights=torch.zeros((2, NEURON_COUNT)))
     session = ReadingSession(
         NEURON_COUNT,
         ZERO_ADJACENCY,
         POOL_INDICES,
         ["hello", "world"],
         _make_config(),
-        neuropil_pool_indices=neuropil_pool_indices,
+        region_synapse_weights=region_synapse_weights,
     )
 
     tick_result = session.tick()
 
     assert tick_result.neuropil_activity == {"ME_L": 0.0, "MB_CA_R": 0.0}
+
+
+def test_tick_reports_each_regions_synapse_weighted_firing_rate_in_hz():
+    # Neuron 5 (a reward dopamine neuron) fires on "good"; region A holds a quarter of its
+    # synapses on it, region B none.
+    weights = torch.zeros((2, NEURON_COUNT))
+    weights[0, 5] = 0.25
+    weights[0, 0] = 0.75
+    weights[1, 1] = 1.0
+    session = ReadingSession(
+        NEURON_COUNT,
+        ZERO_ADJACENCY,
+        POOL_INDICES,
+        ["good"],
+        _make_config(ticks_per_word=1, input_current_scale=100.0, display_window_size=1),
+        region_synapse_weights=RegionSynapseWeights(names=["A", "B"], weights=weights.to_sparse_csr()),
+    )
+
+    tick_result = session.tick()
+
+    assert tick_result.neuropil_activity == pytest.approx({"A": 250.0, "B": 0.0})
+
+
+def test_tick_reports_the_whole_brains_mean_firing_rate_in_hz():
+    session = ReadingSession(
+        NEURON_COUNT,
+        ZERO_ADJACENCY,
+        POOL_INDICES,
+        ["good"],
+        _make_config(ticks_per_word=1, input_current_scale=100.0, display_window_size=1),
+    )
+
+    tick_result = session.tick()
+
+    spiking_neuron_count = int(session._previous_spikes.sum().item())
+    assert spiking_neuron_count > 0
+    assert tick_result.firing_rate_hz == pytest.approx(spiking_neuron_count / NEURON_COUNT * 1000.0)
+
+
+def test_tick_reports_the_dopamine_neurons_firing_rates_in_hz():
+    tick_result = _first_tick_with_strong_input("good")
+
+    assert tick_result.region_activity["approach"] == pytest.approx(1000.0)
+    assert tick_result.region_activity["avoidance"] == pytest.approx(0.0)
 
 
 def test_load_new_text_replaces_tokens_and_resets_tick_number_but_keeps_current_word_from_new_book():
@@ -355,7 +386,6 @@ def test_tick_reads_reward_from_the_reward_dopamine_neurons_a_positive_word_exci
 
     assert tick_result.emotions["reward"] == pytest.approx(1.0)
     assert tick_result.emotions["aversion"] == pytest.approx(0.0)
-    assert tick_result.region_activity["approach"] == pytest.approx(1.0)
     assert tick_result.rating_0_10 == pytest.approx(10.0)
 
 
@@ -364,7 +394,6 @@ def test_tick_reads_aversion_from_the_punishment_dopamine_neurons_a_negative_wor
 
     assert tick_result.emotions["aversion"] == pytest.approx(1.0)
     assert tick_result.emotions["reward"] == pytest.approx(0.0)
-    assert tick_result.region_activity["avoidance"] == pytest.approx(1.0)
     assert tick_result.rating_0_10 == pytest.approx(0.0)
 
 

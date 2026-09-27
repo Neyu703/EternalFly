@@ -125,3 +125,31 @@ def filter_ids_to_known_set(
 def build_neuron_index(root_ids: numpy.ndarray) -> dict[int, int]:
     """Map each neuron root id to its position within root_ids, as plain Python ints."""
     return {int(neuron_id): position for position, neuron_id in enumerate(root_ids)}
+
+
+def neuropil_synapse_count_rows(
+    neuropil_count_table: pyarrow.Table,
+    id_column_name: str,
+    neuron_id_to_index: dict[int, int],
+    region_names: list[str],
+) -> tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray]:
+    """Return (neuron indices, region indices, counts) as parallel numpy arrays, one entry
+    per row of neuropil_count_table (identified by id_column_name, e.g. "pre_pt_root_id")
+    whose neuron is in neuron_id_to_index and whose neuropil is in region_names; a region's
+    index is its position in region_names. Other rows (unproofread segments, unnamed
+    neuropils) are dropped."""
+    region_index_by_name = {name: index for index, name in enumerate(region_names)}
+    columns = neuropil_count_table.select([id_column_name, "neuropil", "count"]).to_pydict()
+    neuron_indices, region_indices, counts = [], [], []
+    for neuron_id, neuropil, count in zip(columns[id_column_name], columns["neuropil"], columns["count"]):
+        neuron_index = neuron_id_to_index.get(int(neuron_id))
+        region_index = region_index_by_name.get(neuropil)
+        if neuron_index is not None and region_index is not None:
+            neuron_indices.append(neuron_index)
+            region_indices.append(region_index)
+            counts.append(count)
+    return (
+        numpy.array(neuron_indices, dtype=numpy.int64),
+        numpy.array(region_indices, dtype=numpy.int64),
+        numpy.array(counts, dtype=numpy.int64),
+    )

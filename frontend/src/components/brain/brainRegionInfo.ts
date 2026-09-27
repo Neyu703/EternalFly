@@ -1,12 +1,12 @@
 /** Plain-language descriptions of the 78 FlyWire neuropil regions (codes like "ME_R"),
  * grouped by the brain areas used in the FlyWire/hemibrain nomenclature. */
 
-// Region firing rates span orders of magnitude (measured live: ~0.0005 to ~0.2 of a
-// region's neurons per tick), so they're shown on a log scale from RATE_FLOOR (0) to
-// RATE_CEILING (1). Any rate above zero shows at least MIN_FIRING_LEVEL, so every firing
+// Region firing rates span orders of magnitude (measured live: ~0.05 Hz in the lamina to
+// ~170 Hz in the antennal lobes), so they're shown on a log scale from RATE_FLOOR_HZ (0) to
+// RATE_CEILING_HZ (1). Any rate above zero shows at least MIN_FIRING_LEVEL, so every firing
 // region stays visibly lit and only regions that don't fire at all stay dark.
-const RATE_FLOOR = 1e-4;
-const RATE_CEILING = 0.2;
+const RATE_FLOOR_HZ = 0.1;
+const RATE_CEILING_HZ = 200;
 const MIN_FIRING_LEVEL = 0.15;
 
 type BrainArea = { name: string; role: string };
@@ -101,10 +101,10 @@ export function describeRegion(code: string): RegionDescription {
     };
 }
 
-/** How lit a region is (0..1) for its raw firing rate: log-scaled between RATE_FLOOR and
- * RATE_CEILING, at least MIN_FIRING_LEVEL while it fires at all, 0 only when it doesn't. */
-export function regionActivityLevel(firingRate: number): number {
-    if (!(firingRate > 0)) return 0;
-    const logLevel = Math.log(firingRate / RATE_FLOOR) / Math.log(RATE_CEILING / RATE_FLOOR);
+/** How lit a region is (0..1) for its firing rate in Hz: log-scaled between RATE_FLOOR_HZ
+ * and RATE_CEILING_HZ, at least MIN_FIRING_LEVEL while it fires at all, 0 only when it doesn't. */
+export function regionActivityLevel(firingRateHz: number): number {
+    if (!(firingRateHz > 0)) return 0;
+    const logLevel = Math.log(firingRateHz / RATE_FLOOR_HZ) / Math.log(RATE_CEILING_HZ / RATE_FLOOR_HZ);
     return Math.min(1, Math.max(MIN_FIRING_LEVEL, logLevel));
 }

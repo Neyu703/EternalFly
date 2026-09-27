@@ -19,7 +19,8 @@ import uvicorn
 
 from eternalfly.calibre_library import configured_library_path
 from eternalfly.lif import LIFParameters
-from eternalfly.reading_session import ReadingSession, ReadingSessionConfig
+from eternalfly.neuropils import ALL_NEUROPIL_NAMES
+from eternalfly.reading_session import ReadingSession, ReadingSessionConfig, RegionSynapseWeights
 from eternalfly.server import create_app
 from eternalfly.text_encoder import tokenize_text
 from scripts.emotion_calibration import EMOTION_CALIBRATIONS
@@ -81,13 +82,26 @@ def configure_logging() -> None:
         handler.setFormatter(logging.Formatter(LOG_FORMAT))
 
 
-def load_adjacency_as_torch_sparse(device: str) -> torch.Tensor:
-    """Load the cached signed adjacency matrix, scaled by WEIGHT_SCALE, as a torch sparse CSR tensor."""
-    scipy_matrix = scipy.sparse.load_npz(CACHE_DIR / "adjacency.npz").tocsr()
+def load_sparse_as_torch(cache_path: Path, device: str, scale: float = 1.0) -> torch.Tensor:
+    """Load a cached scipy sparse matrix, multiplied by scale, as a torch sparse CSR tensor."""
+    scipy_matrix = scipy.sparse.load_npz(cache_path).tocsr()
     row_pointers = torch.as_tensor(scipy_matrix.indptr, dtype=torch.int64)
     column_indices = torch.as_tensor(scipy_matrix.indices, dtype=torch.int64)
-    values = torch.as_tensor(scipy_matrix.data, dtype=torch.float32) * WEIGHT_SCALE
+    values = torch.as_tensor(scipy_matrix.data, dtype=torch.float32) * scale
     return torch.sparse_csr_tensor(row_pointers, column_indices, values, size=scipy_matrix.shape, device=device)
+
+
+def load_adjacency_as_torch_sparse(device: str) -> torch.Tensor:
+    """Load the cached signed adjacency matrix, scaled by WEIGHT_SCALE, as a torch sparse CSR tensor."""
+    return load_sparse_as_torch(CACHE_DIR / "adjacency.npz", device, WEIGHT_SCALE)
+
+
+def load_region_synapse_weights(device: str) -> RegionSynapseWeights:
+    """Load the cached region x neuron synapse-share matrix, whose rows follow
+    ALL_NEUROPIL_NAMES (see scripts/build_connectome_cache.py)."""
+    return RegionSynapseWeights(
+        names=ALL_NEUROPIL_NAMES, weights=load_sparse_as_torch(CACHE_DIR / "region_synapse_weights.npz", device)
+    )
 
 
 def load_pool_indices(cache_path: Path, device: str) -> dict[str, torch.Tensor]:
@@ -101,7 +115,7 @@ def build_session() -> ReadingSession:
     device = "cuda" if torch.cuda.is_available() else "cpu"
     adjacency_matrix = load_adjacency_as_torch_sparse(device)
     pool_indices = load_pool_indices(CACHE_DIR / "pool_indices.npz", device)
-    neuropil_pool_indices = load_pool_indices(CACHE_DIR / "neuropil_pool_indices.npz", device)
+    region_synapse_weights = load_region_synapse_weights(device)
     tokens = tokenize_text(TEST_TEXT)
 
     config = ReadingSessionConfig(
@@ -130,7 +144,7 @@ def build_session() -> ReadingSession:
     )
     logger.info("emotion calibrations: %s", EMOTION_CALIBRATIONS)
     return ReadingSession(
-        adjacency_matrix.shape[0], adjacency_matrix, pool_indices, tokens, config, neuropil_pool_indices
+        adjacency_matrix.shape[0], adjacency_matrix, pool_indices, tokens, config, region_synapse_weights
     )
 
 

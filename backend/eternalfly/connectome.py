@@ -82,3 +82,24 @@ def keep_shared_neurons_in_majority_pool(
         )
         disjoint_pools[pool_name] = (neuron_ids[is_kept], counts[is_kept])
     return disjoint_pools
+
+
+def build_region_synapse_weights(
+    neuron_indices: numpy.ndarray,
+    region_indices: numpy.ndarray,
+    synapse_counts: numpy.ndarray,
+    region_count: int,
+    neuron_count: int,
+) -> scipy.sparse.csr_matrix:
+    """Build a region_count x neuron_count matrix whose row r holds each neuron's share of
+    region r's synapses (parallel input arrays; duplicate (region, neuron) entries, such as
+    a neuron's pre- and postsynapses there, are summed). Row r times a spike vector is then
+    the synapse-weighted mean firing of every neuron with synapses in region r: each neuron
+    counts as much as it is present there, the way a neuropil's recorded activity mixes
+    all the neurites passing through it. Rows of regions without synapses stay all zero."""
+    region_by_neuron_counts = scipy.sparse.coo_matrix(
+        (synapse_counts.astype(numpy.float64), (region_indices, neuron_indices)), shape=(region_count, neuron_count)
+    ).tocsr()
+    region_totals = numpy.asarray(region_by_neuron_counts.sum(axis=1)).ravel()
+    inverse_totals = numpy.divide(1.0, region_totals, out=numpy.zeros_like(region_totals), where=region_totals > 0)
+    return (scipy.sparse.diags(inverse_totals) @ region_by_neuron_counts).tocsr()

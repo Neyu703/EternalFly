@@ -1,4 +1,4 @@
-import { formatDecimal, formatInteger, formatPercent } from "./utils/format";
+import { formatDecimal, formatFiringRate, formatInteger, formatPercent } from "./utils/format";
 
 /** How one brain-activity metric is labeled, colored and scaled wherever it's charted
  * (the live brain panel and the end-of-book overview). */
@@ -34,7 +34,7 @@ export const AROUSAL_METRIC: MetricDefinition = {
 
 export const FIRING_RATE_METRIC: MetricDefinition = {
     label: "Firing rate",
-    description: "Mean spike rate across all tracked brain regions",
+    description: "Mean firing rate of all simulated neurons",
     color: "#439ccc",
-    formatValue: formatPercent,
+    formatValue: formatFiringRate,
 };

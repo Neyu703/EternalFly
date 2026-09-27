@@ -32,6 +32,7 @@ SAMPLE_TICK_RESULT = TickResult(
     rating_0_10=6.5,
     region_activity={"approach": 0.1, "avoidance": 0.2, "arousal": 0.3},
     neuropil_activity={"ME_L": 0.4, "MB_CA_R": 0.5},
+    firing_rate_hz=5.0,
     wants_new_book=False,
     book_finished=False,
 )
@@ -49,6 +50,7 @@ def test_tick_result_to_json_returns_dict_with_exact_keys_and_values():
         "rating_0_10": 6.5,
         "region_activity": {"approach": 0.1, "avoidance": 0.2, "arousal": 0.3},
         "neuropil_activity": {"ME_L": 0.4, "MB_CA_R": 0.5},
+        "firing_rate_hz": 5.0,
         "wants_new_book": False,
         "book_finished": False,
     }
@@ -77,6 +79,7 @@ class FakeIncrementingSession:
             rating_0_10=float(self._tick_count),
             region_activity={"approach": 0.0, "avoidance": 0.0, "arousal": 0.0},
             neuropil_activity={},
+            firing_rate_hz=0.0,
             wants_new_book=False,
         )
 
@@ -99,6 +102,7 @@ def test_ws_first_message_matches_json_of_first_tick():
             rating_0_10=1.0,
             region_activity={"approach": 0.0, "avoidance": 0.0, "arousal": 0.0},
             neuropil_activity={},
+            firing_rate_hz=0.0,
             wants_new_book=False,
         )
     )
@@ -406,6 +410,7 @@ class FakeControllableSession:
             rating_0_10=float(self._tick_count),
             region_activity={"approach": 0.0, "avoidance": 0.0, "arousal": 0.0},
             neuropil_activity={},
+            firing_rate_hz=0.0,
             wants_new_book=False,
             book_finished=book_finished,
         )

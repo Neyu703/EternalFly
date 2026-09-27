@@ -7,7 +7,12 @@ from pathlib import Path
 import numpy
 import scipy.sparse
 
-from eternalfly.connectome import build_signed_adjacency, keep_shared_neurons_in_majority_pool, select_pool_by_activity
+from eternalfly.connectome import (
+    build_region_synapse_weights,
+    build_signed_adjacency,
+    keep_shared_neurons_in_majority_pool,
+    select_pool_by_activity,
+)
 from eternalfly.data_prep import (
     aggregate_connections_by_neuron_pair,
     aggregate_neuron_activity_by_neuropil,
@@ -17,6 +22,7 @@ from eternalfly.data_prep import (
     filter_ids_to_known_set,
     load_feather_table,
     load_root_ids,
+    neuropil_synapse_count_rows,
 )
 from eternalfly.neuropils import ALL_NEUROPIL_NAMES
 
@@ -151,12 +157,20 @@ def main() -> None:
     for pool_name, indices in pool_indices.items():
         print(f"pool {pool_name}: {len(indices)} neurons")
 
-    neuropil_single_name_groups = {name: [name] for name in ALL_NEUROPIL_NAMES}
-    neuropil_pool_indices = build_pool_indices(
-        post_neuropil_table, root_ids, neuron_id_to_index, neuropil_single_name_groups
+    region_rows = [
+        neuropil_synapse_count_rows(table, id_column, neuron_id_to_index, ALL_NEUROPIL_NAMES)
+        for table, id_column in ((pre_neuropil_table, "pre_pt_root_id"), (post_neuropil_table, "post_pt_root_id"))
+    ]
+    region_synapse_weights = build_region_synapse_weights(
+        numpy.concatenate([rows[0] for rows in region_rows]),
+        numpy.concatenate([rows[1] for rows in region_rows]),
+        numpy.concatenate([rows[2] for rows in region_rows]),
+        region_count=len(ALL_NEUROPIL_NAMES),
+        neuron_count=len(root_ids),
     )
-    numpy.savez(CACHE_DIR / "neuropil_pool_indices.npz", **neuropil_pool_indices)
-    print(f"neuropil pools: {len(neuropil_pool_indices)} regions")
+    # Rows follow ALL_NEUROPIL_NAMES; see ReadingSession for how they become region firing rates.
+    scipy.sparse.save_npz(CACHE_DIR / "region_synapse_weights.npz", region_synapse_weights)
+    print("region synapse weights:", region_synapse_weights.shape, "nnz:", region_synapse_weights.nnz)
 
 
 if __name__ == "__main__":

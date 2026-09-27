@@ -1,7 +1,12 @@
 import numpy
 import pytest
 
-from eternalfly.connectome import build_signed_adjacency, keep_shared_neurons_in_majority_pool, select_pool_by_activity
+from eternalfly.connectome import (
+    build_region_synapse_weights,
+    build_signed_adjacency,
+    keep_shared_neurons_in_majority_pool,
+    select_pool_by_activity,
+)
 
 
 def test_build_signed_adjacency_single_excitatory_connection():
@@ -141,3 +146,23 @@ def test_keep_shared_neurons_in_majority_pool_handles_an_empty_pool():
 
     assert disjoint_pools["reward"][0].tolist() == []
     assert disjoint_pools["punishment"][0].tolist() == [7]
+
+
+def test_build_region_synapse_weights_gives_each_neuron_its_share_of_the_regions_synapses():
+    weights = build_region_synapse_weights(
+        neuron_indices=numpy.array([0, 1, 1, 2]),
+        region_indices=numpy.array([0, 0, 0, 1]),
+        synapse_counts=numpy.array([2, 3, 3, 5]),
+        region_count=3,
+        neuron_count=3,
+    )
+
+    assert weights.toarray().tolist() == [[0.25, 0.75, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 0.0]]
+
+
+def test_build_region_synapse_weights_times_spikes_is_the_synapse_weighted_mean_firing():
+    weights = build_region_synapse_weights(
+        numpy.array([0, 1]), numpy.array([0, 0]), numpy.array([1, 3]), region_count=1, neuron_count=2
+    )
+
+    assert (weights @ numpy.array([1.0, 0.0])).tolist() == [0.25]

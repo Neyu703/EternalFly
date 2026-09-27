@@ -22,6 +22,7 @@ type RawTick = {
   rating_0_10: number;
   region_activity: Record<string, number>;
   neuropil_activity: Record<string, number>;
+  firing_rate_hz: number;
   wants_new_book: boolean;
   book_finished: boolean;
 };
@@ -37,6 +38,7 @@ function toTickData(raw: RawTick): TickData {
     rating0To10: raw.rating_0_10,
     regionActivity: raw.region_activity,
     neuropilActivity: raw.neuropil_activity,
+    firingRateHz: raw.firing_rate_hz,
     wantsNewBook: raw.wants_new_book,
     bookFinished: raw.book_finished,
   };

@@ -18,6 +18,7 @@ from eternalfly.lif import LIFParameters, LIFState, create_initial_state, step
 from eternalfly.session_helpers import (
     compute_pool_spike_rate,
     inject_currents_at_indices,
+    spike_fraction_to_hz,
     word_index_for_tick,
 )
 from eternalfly.text_encoder import project_arousal_to_currents, project_token_to_currents, project_valence_to_currents
@@ -45,6 +46,16 @@ class ReadingSessionConfig:
 
 
 @dataclass(frozen=True)
+class RegionSynapseWeights:
+    """Brain regions to report firing rates for: their names and a (region count, neuron
+    count) matrix whose row per region holds each neuron's share of that region's synapses
+    (see connectome.build_region_synapse_weights), in the same order."""
+
+    names: list[str]
+    weights: torch.Tensor
+
+
+@dataclass(frozen=True)
 class TickResult:
     """The observable outcome of advancing a ReadingSession by one tick."""
 
@@ -56,6 +67,7 @@ class TickResult:
     rating_0_10: float
     region_activity: dict[str, float]
     neuropil_activity: dict[str, float]
+    firing_rate_hz: float
     wants_new_book: bool
     book_finished: bool = False
 
@@ -70,7 +82,7 @@ class ReadingSession:
         pool_indices: dict[str, torch.Tensor],
         tokens: list[str],
         config: ReadingSessionConfig,
-        neuropil_pool_indices: dict[str, torch.Tensor] | None = None,
+        region_synapse_weights: RegionSynapseWeights | None = None,
     ):
         """Create a session over tokens, using pool_indices["sensory_input"/
         "valence_positive"/"valence_negative"/"arousal_input"] (index tensors into the
@@ -84,9 +96,9 @@ class ReadingSession:
         fly's reward, aversion and arousal, so what is shown is their actual firing,
         including everything the rest of the network feeds into them.
 
-        neuropil_pool_indices optionally maps arbitrary region names (e.g. real FlyWire
-        neuropil codes) to index tensors, tracked purely for reporting live per-region
-        activity via TickResult.neuropil_activity; they play no part in the emotion or
+        region_synapse_weights optionally names brain regions (e.g. real FlyWire neuropil
+        codes) whose synapse-weighted firing rate is reported live, in Hz, via
+        TickResult.neuropil_activity; they play no part in the emotion or
         engagement calculations."""
         self._neuron_count = neuron_count
         self._adjacency_matrix = adjacency_matrix
@@ -113,12 +125,10 @@ class ReadingSession:
         self._engagement_average = RollingAverage(config.engagement_window_size)
         self._word_activity_log = WordActivityLog()
 
-        self._neuropil_pool_indices = {
-            region_name: indices.to(config.device) for region_name, indices in (neuropil_pool_indices or {}).items()
-        }
-        self._neuropil_rate_averages = {
-            region_name: RollingAverage(config.display_window_size) for region_name in self._neuropil_pool_indices
-        }
+        self._region_names = region_synapse_weights.names if region_synapse_weights else []
+        self._region_weights = region_synapse_weights.weights.to(config.device) if region_synapse_weights else None
+        self._region_rate_averages = [RollingAverage(config.display_window_size) for _ in self._region_names]
+        self._firing_rate_average = RollingAverage(config.display_window_size)
 
     def _current_external_input(self, word_index: int, book_finished: bool) -> torch.Tensor:
         """Return this tick's injected current: the active word's projection, held for its
@@ -192,14 +202,14 @@ class ReadingSession:
     def _update_display_activity(self, raw_rates: dict[str, float]) -> tuple[dict[str, float], float, dict[str, float]]:
         """Roll raw_rates through the short display window and derive this tick's
         visibly-reactive emotions, rating and region_activity.
-        region_activity reports the reward and punishment dopamine neurons' smoothed rates
-        as "approach"/"avoidance" and the arousal emotion as "arousal", so the displayed
-        Arousal tile matches the Emotions card."""
+        region_activity reports the reward and punishment dopamine neurons' smoothed firing
+        rates in Hz as "approach"/"avoidance" and the arousal emotion as "arousal", so the
+        displayed Arousal tile matches the Emotions card."""
         display_rates = {name: average.update(raw_rates[name]) for name, average in self._display_rate_averages.items()}
         emotions, rating = self._emotions_and_rating(display_rates)
         region_activity = {
-            "approach": display_rates["reward"],
-            "avoidance": display_rates["aversion"],
+            "approach": self._to_hz(display_rates["reward"]),
+            "avoidance": self._to_hz(display_rates["aversion"]),
             "arousal": emotions["arousal"],
         }
         return emotions, rating, region_activity
@@ -213,13 +223,29 @@ class ReadingSession:
         emotions, rating = self._emotions_and_rating(engagement_rates)
         return rating, emotions["arousal"]
 
+    def _to_hz(self, spike_fraction: float) -> float:
+        """Convert a per-tick spike fraction into spikes per second (see
+        session_helpers.spike_fraction_to_hz) for this session's simulation time step."""
+        return spike_fraction_to_hz(spike_fraction, self._config.lif_parameters.dt_ms)
+
     def _update_neuropil_activity(self, spikes: torch.Tensor) -> dict[str, float]:
-        """Roll each configured neuropil region's spike rate forward and return the
-        smoothed activity per region name. Empty when no neuropil_pool_indices were given."""
+        """Roll each configured region's synapse-weighted firing rate forward and return
+        the smoothed rate in Hz per region name. Empty when no region_synapse_weights were
+        given."""
+        if self._region_weights is None:
+            return {}
+        region_spike_fractions = (self._region_weights @ spikes).tolist()
         return {
-            region_name: self._neuropil_rate_averages[region_name].update(compute_pool_spike_rate(spikes, indices))
-            for region_name, indices in self._neuropil_pool_indices.items()
+            region_name: self._to_hz(average.update(spike_fraction))
+            for region_name, average, spike_fraction in zip(
+                self._region_names, self._region_rate_averages, region_spike_fractions
+            )
         }
+
+    def _update_firing_rate(self, spikes: torch.Tensor) -> float:
+        """Roll the whole brain's firing rate (the mean over every simulated neuron) forward
+        through the display window and return it in Hz."""
+        return self._to_hz(self._firing_rate_average.update(spikes.mean().item()))
 
     def _update_engagement(self, rating: float, arousal_rate: float) -> bool:
         """Track a smoothed engagement score and report whether the fly wants a new book."""
@@ -308,6 +334,7 @@ class ReadingSession:
         emotions, rating, region_activity = self._update_display_activity(raw_rates)
         self._word_activity_log.record(word_index, current_word, raw_rates, emotions, rating)
         neuropil_activity = self._update_neuropil_activity(spikes)
+        firing_rate_hz = self._update_firing_rate(spikes)
         engagement_rating, engagement_arousal = self._update_engagement_rating_and_arousal(raw_rates)
         wants_new_book = self._update_engagement(engagement_rating, engagement_arousal)
 
@@ -324,6 +351,7 @@ class ReadingSession:
             rating_0_10=rating,
             region_activity=region_activity,
             neuropil_activity=neuropil_activity,
+            firing_rate_hz=firing_rate_hz,
             wants_new_book=wants_new_book,
             book_finished=book_finished,
         )

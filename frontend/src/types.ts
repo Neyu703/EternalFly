@@ -8,8 +8,11 @@ export type TickData = {
   rating0To10: number;
   regionActivity: Record<string, number>;
   wantsNewBook: boolean;
-  /** Per-neuropil live firing rate (0..1), keyed the same as neuropil-centroids.json. */
+  /** Per-neuropil live firing rate in Hz (synapse-weighted over every neuron with synapses
+   * there), keyed the same as neuropil-centroids.json. */
   neuropilActivity: Record<string, number>;
+  /** Mean firing rate of every simulated neuron, in Hz. */
+  firingRateHz: number;
   bookFinished: boolean;
 };
 
