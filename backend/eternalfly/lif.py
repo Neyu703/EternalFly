@@ -1,8 +1,21 @@
 """Discrete-time Leaky-Integrate-and-Fire (LIF) spiking network simulation engine."""
 
+import contextlib
+import warnings
+from collections.abc import Iterator
 from dataclasses import dataclass
 
 import torch
+
+
+@contextlib.contextmanager
+def accepting_sparse_csr_beta() -> Iterator[None]:
+    """Build sparse CSR tensors inside this block without torch's "CSR support is in beta"
+    notice. The simulation uses CSR on purpose: it's the fastest layout for the synapse
+    matrix's sparse matrix-vector products, and the operations it needs work fine."""
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="Sparse CSR tensor support is in beta state", category=UserWarning)
+        yield
 
 
 @dataclass(frozen=True)

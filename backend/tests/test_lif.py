@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from eternalfly.lif import LIFParameters, LIFState, create_initial_state, step
+from eternalfly.lif import LIFParameters, LIFState, accepting_sparse_csr_beta, create_initial_state, step
 
 PARAMETERS = LIFParameters(
     membrane_time_constant_ms=20.0,
@@ -94,7 +94,8 @@ def test_step_dense_and_sparse_csr_weight_matrix_produce_same_result():
     dense_weight_matrix = torch.tensor(
         [[0.0, 0.0, 2.0], [3.0, 0.0, 0.0], [0.0, -1.0, 0.0]]
     )
-    sparse_weight_matrix = dense_weight_matrix.to_sparse_csr()
+    with accepting_sparse_csr_beta():
+        sparse_weight_matrix = dense_weight_matrix.to_sparse_csr()
     external_input = torch.tensor([0.0, 0.0, 0.0])
     previous_spikes = torch.tensor([1.0, 1.0, 0.0])
 

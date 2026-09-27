@@ -4,7 +4,7 @@ import pytest
 import torch
 
 from eternalfly.emotion_decoder import EMOTION_NAMES, PoolCalibration, compute_emotions, compute_rating, emotions_to_valence
-from eternalfly.lif import LIFParameters
+from eternalfly.lif import LIFParameters, accepting_sparse_csr_beta
 from eternalfly.activity_readout import RegionSynapseWeights
 from eternalfly.reading_session import ReadingSession, ReadingSessionConfig, TickResult
 
@@ -167,8 +167,10 @@ def test_tick_reports_each_regions_synapse_weighted_firing_rate_in_hz():
     weights[0, 5] = 0.25
     weights[0, 0] = 0.75
     weights[1, 1] = 1.0
+    with accepting_sparse_csr_beta():
+        sparse_weights = weights.to_sparse_csr()
     session = _make_strong_input_session(
-        "good", region_synapse_weights=RegionSynapseWeights(names=["A", "B"], weights=weights.to_sparse_csr())
+        "good", region_synapse_weights=RegionSynapseWeights(names=["A", "B"], weights=sparse_weights)
     )
 
     tick_result = session.tick()

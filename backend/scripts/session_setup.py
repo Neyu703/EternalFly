@@ -9,7 +9,7 @@ import torch
 
 from eternalfly.activity_readout import RegionSynapseWeights
 from eternalfly.emotion_decoder import PoolCalibration
-from eternalfly.lif import LIFParameters
+from eternalfly.lif import LIFParameters, accepting_sparse_csr_beta
 from eternalfly.neuropils import ALL_NEUROPIL_NAMES
 from eternalfly.reading_session import ReadingSessionConfig
 from scripts.data_paths import ADJACENCY_CACHE_PATH, POOL_INDICES_CACHE_PATH, REGION_SYNAPSE_WEIGHTS_CACHE_PATH
@@ -46,12 +46,18 @@ def select_device() -> str:
 
 
 def load_sparse_as_torch(cache_path, device: str, scale: float = 1.0) -> torch.Tensor:
-    """Load a cached scipy sparse matrix, multiplied by scale, as a torch sparse CSR tensor."""
+    """Load a cached scipy sparse matrix, multiplied by scale, as a torch sparse CSR tensor.
+    The matrix is brought into canonical form (sorted, distinct column indices per row), which
+    torch's sparse kernels assume; the invariant check at load time guards that once."""
     scipy_matrix = scipy.sparse.load_npz(cache_path).tocsr()
+    scipy_matrix.sum_duplicates()
     row_pointers = torch.as_tensor(scipy_matrix.indptr, dtype=torch.int64)
     column_indices = torch.as_tensor(scipy_matrix.indices, dtype=torch.int64)
     values = torch.as_tensor(scipy_matrix.data, dtype=torch.float32) * scale
-    return torch.sparse_csr_tensor(row_pointers, column_indices, values, size=scipy_matrix.shape, device=device)
+    with accepting_sparse_csr_beta():
+        return torch.sparse_csr_tensor(
+            row_pointers, column_indices, values, size=scipy_matrix.shape, device=device, check_invariants=True
+        )
 
 
 def load_adjacency_as_torch_sparse(device: str, weight_scale: float = WEIGHT_SCALE) -> torch.Tensor:
