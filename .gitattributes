@@ -1,1 +1,3 @@
-Makefile text eol=lf
+# Text files keep LF everywhere (index and working tree), so Windows checkouts match the
+# committed files and git stops warning about LF/CRLF conversions. Binaries are detected.
+* text=auto eol=lf
