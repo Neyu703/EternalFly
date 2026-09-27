@@ -1,9 +1,10 @@
 import * as THREE from "three";
 
 /** Uniforms shared by the region surface and edge materials, so one write per frame
- * drives both draw calls. Region indexes match BrainRegionGeometry.regions; -1 = none. */
+ * drives both draw calls. regionFiring holds each region's (activity level, flash), both
+ * 0..1, as consecutive pairs. Region indexes match BrainRegionGeometry.regions; -1 = none. */
 export type RegionUniforms = {
-    regionActivity: { value: Float32Array };
+    regionFiring: { value: Float32Array };
     hoveredRegion: { value: number };
     selectedRegion: { value: number };
 };
@@ -11,33 +12,36 @@ export type RegionUniforms = {
 /** Fresh uniforms for regionCount regions: all idle, nothing hovered or selected. */
 export function createRegionUniforms(regionCount: number): RegionUniforms {
     return {
-        regionActivity: { value: new Float32Array(regionCount) },
+        regionFiring: { value: new Float32Array(regionCount * 2) },
         hoveredRegion: { value: -1 },
         selectedRegion: { value: -1 },
     };
 }
 
-// Per-vertex region lookups shared by surfaces and edges. `focus` dims every region but
+// Per-vertex region lookups shared by surfaces and edges. `dimmed` marks every region but
 // the selected one while a selection exists.
 const REGION_VERTEX_SHADER = /* glsl */ `
     attribute float regionIndex;
-    uniform float regionActivity[REGION_COUNT];
+    uniform vec2 regionFiring[REGION_COUNT];
     uniform float hoveredRegion;
     uniform float selectedRegion;
     varying vec3 vColor;
     varying float vActivity;
+    varying float vFlash;
     varying float vHover;
-    varying float vFocus;
+    varying float vDimmed;
     #ifdef USE_RIM
         varying vec3 vViewNormal;
         varying vec3 vViewDirection;
     #endif
 
     void main() {
-        vActivity = regionActivity[int(regionIndex + 0.5)];
+        vec2 firing = regionFiring[int(regionIndex + 0.5)];
+        vActivity = firing.x;
+        vFlash = firing.y;
         vHover = 1.0 - step(0.5, abs(regionIndex - hoveredRegion));
         float isSelected = 1.0 - step(0.5, abs(regionIndex - selectedRegion));
-        vFocus = mix(1.0, mix(0.14, 1.0, isSelected), step(0.0, selectedRegion));
+        vDimmed = step(0.0, selectedRegion) * (1.0 - isSelected);
         vColor = color.rgb;
         vec4 viewPosition = modelViewMatrix * vec4(position, 1.0);
         #ifdef USE_RIM
@@ -48,34 +52,44 @@ const REGION_VERTEX_SHADER = /* glsl */ `
     }
 `;
 
-// Resting regions show a muted version of their anatomical color; activity saturates and
-// brightens them, and a hover lifts them toward white.
-const REGION_TINT = /* glsl */ `
+// Resting regions show a muted version of their anatomical color; activity saturates it,
+// and a flash or a hover lifts it toward white. While another region is selected, a
+// region's steady glow dims hard but its flashes only partly, so firing stays visible.
+const REGION_SHADING = /* glsl */ `
     vec3 regionTint() {
         float luminance = dot(vColor, vec3(0.2126, 0.7152, 0.0722));
         vec3 restingTint = mix(vec3(luminance), vColor, 0.62);
         vec3 tint = mix(restingTint, vColor, vActivity);
-        return mix(tint, vec3(1.0), 0.12 * vActivity * vActivity + 0.35 * vHover);
+        return mix(tint, vec3(1.0), 0.12 * vFlash + 0.35 * vHover);
+    }
+
+    float steadyFocus() {
+        return mix(1.0, 0.14, vDimmed);
+    }
+
+    float flashFocus() {
+        return mix(1.0, 0.45, vDimmed);
     }
 `;
 
 const SURFACE_FRAGMENT_SHADER = /* glsl */ `
     varying vec3 vColor;
     varying float vActivity;
+    varying float vFlash;
     varying float vHover;
-    varying float vFocus;
+    varying float vDimmed;
     varying vec3 vViewNormal;
     varying vec3 vViewDirection;
-    ${REGION_TINT}
+    ${REGION_SHADING}
 
     void main() {
         // Fresnel rim: faces seen edge-on glow, faces seen head-on stay see-through.
         float rim = pow(1.0 - abs(dot(normalize(vViewNormal), normalize(vViewDirection))), 2.0);
-        float energy = 0.3 + 0.7 * vActivity;
         // Dozens of shells overlap in the central brain; low per-layer intensity keeps
         // the additive sum from blowing out to white there.
-        float alpha = ((0.006 + 0.13 * rim) * energy + vHover * (0.05 + 0.3 * rim)) * vFocus;
-        gl_FragColor = vec4(regionTint(), alpha);
+        float glow = (0.003 + 0.05 * rim) * (0.25 + 0.75 * vActivity) + vHover * (0.05 + 0.3 * rim);
+        float flash = vFlash * (0.01 + 0.2 * rim);
+        gl_FragColor = vec4(regionTint(), glow * steadyFocus() + flash * flashFocus());
         #include <colorspace_fragment>
     }
 `;
@@ -83,13 +97,14 @@ const SURFACE_FRAGMENT_SHADER = /* glsl */ `
 const EDGE_FRAGMENT_SHADER = /* glsl */ `
     varying vec3 vColor;
     varying float vActivity;
+    varying float vFlash;
     varying float vHover;
-    varying float vFocus;
-    ${REGION_TINT}
+    varying float vDimmed;
+    ${REGION_SHADING}
 
     void main() {
-        float alpha = (0.03 + 0.24 * vActivity + 0.4 * vHover) * vFocus;
-        gl_FragColor = vec4(regionTint(), alpha);
+        float glow = 0.01 + 0.05 * vActivity + 0.4 * vHover;
+        gl_FragColor = vec4(regionTint(), glow * steadyFocus() + 0.35 * vFlash * flashFocus());
         #include <colorspace_fragment>
     }
 `;

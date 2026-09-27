@@ -69,7 +69,7 @@ function App() {
             hint="Click a region for details · Drag to rotate"
           />
           <div className="stage-canvas">
-            <BrainScene activity={tick?.neuropilActivity} />
+            <BrainScene activity={tick?.neuropilActivity} isPaused={isPaused || !isConnected} />
           </div>
           <div className="stage-footer">{tick && <NeuralActivityChart tick={tick} isPaused={isPaused} />}</div>
         </section>

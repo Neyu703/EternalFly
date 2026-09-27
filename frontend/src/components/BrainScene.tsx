@@ -3,8 +3,8 @@ import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import { BrainGlow, CLICK_SLOP_PX, type NeuropilActivity } from "./BrainGlow";
 import type { BrainRegion } from "./brain/brainGeometry";
-import { describeRegion, normalizedRegionActivity } from "./brain/brainRegionInfo";
-import { formatPercent } from "../utils/format";
+import { describeRegion, regionActivityLevel } from "./brain/brainRegionInfo";
+import { formatFiringRate } from "../utils/format";
 import { PREFERS_REDUCED_MOTION } from "../utils/motion";
 import { CloseIcon } from "./icons";
 import "./BrainScene.css";
@@ -26,10 +26,11 @@ function tooltipPlacement(x: number, y: number, width: number, height: number): 
   return { ...horizontal, ...vertical };
 }
 
-/** 3D panel: the live brain, slowly turning while idle. Hovering a region names it,
+/** 3D panel: the live brain, slowly turning while idle, its regions flashing as they
+ * fire (not while isPaused, nor with reduced motion). Hovering a region names it,
  * clicking one focuses the camera on it and opens a card with what it does and how
  * active it is; Escape, the card's close button or a click on empty space go back. */
-export function BrainScene({ activity }: { activity?: NeuropilActivity }) {
+export function BrainScene({ activity, isPaused }: { activity?: NeuropilActivity; isPaused: boolean }) {
   const [hover, setHover] = useState<HoverState | null>(null);
   const [selectedCode, setSelectedCode] = useState<string | null>(null);
   const [regionColors, setRegionColors] = useState<Record<string, string>>({});
@@ -94,6 +95,7 @@ export function BrainScene({ activity }: { activity?: NeuropilActivity }) {
         <group scale={0.28}>
           <BrainGlow
             activity={activity}
+            isFiring={!isPaused && !PREFERS_REDUCED_MOTION}
             hoveredCode={hover?.code ?? null}
             selectedCode={selectedCode}
             onHoverRegion={handleHoverRegion}
@@ -136,13 +138,13 @@ function RegionTooltip({ code, activity, style }: { code: string; activity?: num
       <span className="region-tooltip-meta">
         {region.areaName} · {region.side}
       </span>
-      {activity !== undefined && <span className="region-tooltip-meta">Firing rate {formatPercent(activity)}</span>}
+      {activity !== undefined && <span className="region-tooltip-meta">Firing rate {formatFiringRate(activity)}</span>}
     </div>
   );
 }
 
 /** Details of the selected region: name, brain area, what that area does, and its live
- * firing rate as a bar scaled to how active regions get. */
+ * firing rate, with a bar on the same log scale as the region's glow. */
 function RegionCard({
   code,
   color,
@@ -155,7 +157,7 @@ function RegionCard({
   onClose: () => void;
 }) {
   const region = describeRegion(code);
-  const barFraction = activity !== undefined ? normalizedRegionActivity(activity) : 0;
+  const barFraction = activity !== undefined ? regionActivityLevel(activity) : 0;
   return (
     <aside className="region-card" aria-label={`Brain region ${region.name}`}>
       <div className="region-card-header">
@@ -176,7 +178,7 @@ function RegionCard({
         <span className="region-card-activity-track">
           <span className="region-card-activity-fill" style={{ width: `${barFraction * 100}%`, background: color }} />
         </span>
-        <span className="region-card-activity-value">{activity !== undefined ? formatPercent(activity) : "—"}</span>
+        <span className="region-card-activity-value">{activity !== undefined ? formatFiringRate(activity) : "—"}</span>
       </div>
     </aside>
   );

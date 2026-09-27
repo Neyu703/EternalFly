@@ -3,7 +3,7 @@ import { useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
 import { useGLTF } from "@react-three/drei";
 import * as THREE from "three";
 import { buildBrainRegions, type BrainRegion } from "./brain/brainGeometry";
-import { normalizedRegionActivity } from "./brain/brainRegionInfo";
+import { regionActivityLevel } from "./brain/brainRegionInfo";
 import {
   createOutlineMaterial,
   createRegionEdgeMaterial,
@@ -19,6 +19,15 @@ const OUTLINE_MODEL_URL = "/models/brain-outline.glb";
 const REGIONS_MODEL_URL = "/models/neuropil-regions.glb";
 // How fast displayed activity follows the ~20 Hz simulation ticks (1/s); smooths flicker.
 const ACTIVITY_SMOOTHING_RATE = 8;
+// A fully active region tries to flash this often per second, less active ones
+// proportionally less.
+const MAX_FLASH_ATTEMPTS_PER_SECOND = 5;
+// How fast a flash fades out (1/s).
+const FLASH_FADE_RATE = 10;
+// Like a neuron's refractory period: a region flashes again only once its last flash has
+// faded this long, so no region flashes more than 3 times a second (WCAG 2.3.1).
+const FLASH_REFRACTORY_SECONDS = 0.34;
+const REFRACTORY_FLASH_LEVEL = Math.exp(-FLASH_FADE_RATE * FLASH_REFRACTORY_SECONDS);
 // Pointer moves shorter than this (px) between press and release count as a click, not a drag.
 export const CLICK_SLOP_PX = 5;
 const FOCUS_DISTANCE = 1.45;
@@ -35,24 +44,33 @@ function outlineGeometryOf(outlineScene: THREE.Object3D): THREE.BufferGeometry {
   return outlineGeometry;
 }
 
-/** Writes smoothed activity for every region into the shared uniform; without live data,
- * regions pulse gently out of phase so the brain still reads as alive. */
-function updateActivityUniform(
+/** Advances every region's displayed firing in the shared uniform. Its activity level
+ * follows the live firing rate smoothly (without live data, regions pulse gently out of
+ * phase so the brain still reads as alive). While isFiring, every region that fires flashes
+ * at random moments, more often the more active it is, but never again within its
+ * refractory time; each flash fades out quickly. */
+function updateRegionFiring(
   uniforms: RegionUniforms,
   regions: BrainRegion[],
   activity: NeuropilActivity | undefined,
+  isFiring: boolean,
   elapsedTime: number,
   delta: number,
 ): void {
-  const displayed = uniforms.regionActivity.value;
+  const firing = uniforms.regionFiring.value;
   const blend = 1 - Math.exp(-ACTIVITY_SMOOTHING_RATE * delta);
+  const flashFade = Math.exp(-FLASH_FADE_RATE * delta);
   regions.forEach((region, index) => {
-    const liveActivity = activity?.[region.code];
-    const target =
-      liveActivity !== undefined
-        ? normalizedRegionActivity(liveActivity)
+    const liveRate = activity?.[region.code];
+    const targetLevel =
+      liveRate !== undefined
+        ? regionActivityLevel(liveRate)
         : Math.max(0, Math.sin(elapsedTime * 1.5 + index * 2.39)) * 0.5;
-    displayed[index] += (target - displayed[index]) * blend;
+    firing[index * 2] += (targetLevel - firing[index * 2]) * blend;
+    const flash = firing[index * 2 + 1];
+    const canFlash = isFiring && liveRate !== undefined && flash <= REFRACTORY_FLASH_LEVEL;
+    const flashChance = canFlash ? 1 - Math.exp(-MAX_FLASH_ATTEMPTS_PER_SECOND * targetLevel * delta) : 0;
+    firing[index * 2 + 1] = Math.random() < flashChance ? 1 : flash * flashFade;
   });
 }
 
@@ -61,12 +79,14 @@ function updateActivityUniform(
  * regions), drawn in three draw calls: a rim-lit outline shell, the merged region surfaces
  * and their merged contour edges, all additive so overlapping regions glow instead of
  * needing depth sorting. Each region's brightness and saturation follow its live firing
- * rate. The untouched region meshes stay hidden in the scene for pointer picking:
- * hovering reports a region, clicking selects it, and a selection dims the other regions
- * while the camera glides toward it (and back out when cleared).
+ * rate (log-scaled, so every firing region is lit), and while isFiring, firing regions
+ * flash as often as they fire. The untouched region meshes stay hidden in the scene for
+ * pointer picking: hovering reports a region, clicking selects it, and a selection dims
+ * the other regions while the camera glides toward it (and back out when cleared).
  */
 export function BrainGlow({
   activity,
+  isFiring,
   hoveredCode,
   selectedCode,
   onHoverRegion,
@@ -74,6 +94,7 @@ export function BrainGlow({
   onRegionsReady,
 }: {
   activity?: NeuropilActivity;
+  isFiring: boolean;
   hoveredCode: string | null;
   selectedCode: string | null;
   onHoverRegion: (code: string | null, clientX: number, clientY: number) => void;
@@ -108,7 +129,7 @@ export function BrainGlow({
     const surfaces = surfacesRef.current;
     if (!surfaces) return;
     const uniforms = (surfaces.material as THREE.ShaderMaterial).uniforms as unknown as RegionUniforms;
-    updateActivityUniform(uniforms, brain.regions, activity, clock.elapsedTime, delta);
+    updateRegionFiring(uniforms, brain.regions, activity, isFiring, clock.elapsedTime, delta);
     uniforms.hoveredRegion.value = hoveredCode ? (regionIndexByCode.get(hoveredCode) ?? -1) : -1;
     uniforms.selectedRegion.value = selectedCode ? (regionIndexByCode.get(selectedCode) ?? -1) : -1;
   });
