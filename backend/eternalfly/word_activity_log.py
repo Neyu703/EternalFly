@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 
 from eternalfly.emotion_decoder import EMOTION_NAMES
 from eternalfly.sentiment_lexicon import word_valence
+from eternalfly.validation import require_positive_int
 
 logger = logging.getLogger(__name__)
 
@@ -55,8 +56,7 @@ class WordActivityLog:
 
     def __init__(self, summary_word_count: int = SUMMARY_WORD_COUNT):
         """Create a log that summarizes every summary_word_count words (a positive integer)."""
-        if summary_word_count <= 0:
-            raise ValueError("summary_word_count must be a positive integer")
+        require_positive_int("summary_word_count", summary_word_count)
         self._summary_word_count = summary_word_count
         self._current_word: _WordActivity | None = None
         self._summary = _SummaryWindow()

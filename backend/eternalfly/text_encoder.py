@@ -12,6 +12,7 @@ from bs4 import BeautifulSoup, Tag
 
 from eternalfly.sentiment_lexicon import word_valence
 from eternalfly.story_start import SpineDocument, TocEntry, plain_text_story, story_start_index
+from eternalfly.validation import require_positive_int
 
 # Half-width of the per-neuron random noise added to every token's currents (see
 # project_token_to_currents) — purely a texture/diversity signal, carries no sentiment.
@@ -41,8 +42,7 @@ def project_token_to_currents(token: str, pool_size: int, current_scale: float, 
     word its own texture across the pool), reproducible across separate process runs
     given the same (token, pool_size, current_scale, seed). Carries no sentiment — see
     project_valence_to_currents for that."""
-    if not isinstance(pool_size, int) or pool_size <= 0:
-        raise ValueError("pool_size must be a positive integer")
+    require_positive_int("pool_size", pool_size)
     token_digest = hashlib.sha256(f"{token}:{seed}".encode()).hexdigest()
     deterministic_seed = int(token_digest, 16) % (2**32)
     random_generator = numpy.random.default_rng(deterministic_seed)

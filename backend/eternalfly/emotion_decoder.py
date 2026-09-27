@@ -4,6 +4,8 @@ emotional states and a 0-10 rating."""
 import collections
 from dataclasses import dataclass
 
+from eternalfly.validation import require_positive_int
+
 # The emotional states the simulated fly brain has circuits for (see compute_emotions).
 EMOTION_NAMES = ("reward", "aversion", "arousal")
 
@@ -29,8 +31,7 @@ class RollingAverage:
     def __init__(self, window_size: int):
         """Create a rolling average over the most recent window_size values.
         window_size must be a positive integer."""
-        if not isinstance(window_size, int) or window_size <= 0:
-            raise ValueError("window_size must be a positive integer")
+        require_positive_int("window_size", window_size)
         self._window = collections.deque(maxlen=window_size)
         self._running_sum = 0.0
 

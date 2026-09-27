@@ -2,6 +2,8 @@
 
 import torch
 
+from eternalfly.validation import require_positive_int
+
 
 def compute_pool_spike_rate(spikes: torch.Tensor, pool_indices: torch.Tensor) -> float:
     """Return the fraction of a neuron pool that spiked this tick, as a plain Python float.
@@ -44,8 +46,7 @@ def is_new_word_tick(tick_number: int, ticks_per_word: int) -> bool:
     A new word begins every ticks_per_word ticks. Raises ValueError if ticks_per_word
     is not a positive integer.
     """
-    if ticks_per_word <= 0:
-        raise ValueError(f"ticks_per_word must be a positive integer, got {ticks_per_word}")
+    require_positive_int("ticks_per_word", ticks_per_word)
     return tick_number % ticks_per_word == 0
 
 
