@@ -14,12 +14,15 @@ export type MetricDefinition = {
 
 // The three colors are validated as a set (all pairs, dark surfaces) and are distinct
 // from the UI accent, so a metric never reads as a control.
+// The dopamine rating's scale runs from 0 to this (see the backend's emotion_decoder.MAX_RATING).
+const DOPAMINE_SCALE_MAX = 10;
+
 export const DOPAMINE_METRIC: MetricDefinition = {
     label: "Dopamine",
-    description: "How much the fly likes the book (0–10)",
+    description: `How much the fly likes the book (0–${DOPAMINE_SCALE_MAX})`,
     color: "#bf8800",
-    maxValue: 10,
-    unit: "/10",
+    maxValue: DOPAMINE_SCALE_MAX,
+    unit: `/${DOPAMINE_SCALE_MAX}`,
     // Whole numbers (the 0–10 scale's own bounds) read as "10", live readings as "5.4".
     formatValue: (value) => (Number.isInteger(value) ? formatInteger(value) : formatDecimal(value, 1)),
 };

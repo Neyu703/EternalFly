@@ -2,8 +2,11 @@ import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { SHEET_MAX_Z, SHEET_MIN_Z, SHEET_OUTER_X, assignPageTexture, pageTexture } from "./pageTextures";
-import { easeInOutCubic, type ReadingChoreography } from "./ReadingChoreography";
+import type { ReadingChoreography } from "./ReadingChoreography";
 import type { PageSurface } from "./pageSurface";
+import { PageMatchedMaterial } from "./PageMatchedMaterial";
+import { clamp01, easeInOutCubic, lerp } from "../../utils/math";
+import { gridTriangleIndices } from "../../utils/scene";
 
 const SEGMENT_COUNT = 28;
 const ROW_COUNT = 8;
@@ -13,6 +16,8 @@ const EDGE_LEAD = 0.55;
 const EDGE_SAG = 0.3;
 // The page's bottom corner (nearest the reader) turns ahead of its top corner.
 const CORNER_LEAD = 0.22;
+// How sharply that edge bend concentrates toward the outer edge (1 = evenly along the sheet).
+const EDGE_BEND_FALLOFF = 1.4;
 
 /** One strip of the sheet at a fixed depth z: its resting shape on the right page as a
  * chain of segments hinged at the spine. */
@@ -21,7 +26,7 @@ type SheetRow = { z: number; spineY: number; segmentLengths: number[]; restAngle
 /** Samples the right page's curved profile into hinge chains, one per sheet row. */
 function buildSheetRows(surface: PageSurface): SheetRow[] {
     return Array.from({ length: ROW_COUNT }, (_, row) => {
-        const z = SHEET_MIN_Z + (row / (ROW_COUNT - 1)) * (SHEET_MAX_Z - SHEET_MIN_Z);
+        const z = lerp(SHEET_MIN_Z, SHEET_MAX_Z, row / (ROW_COUNT - 1));
         const nodeHeights = Array.from({ length: SEGMENT_COUNT + 1 }, (_, node) =>
             surface.heightAt((node / SEGMENT_COUNT) * SHEET_OUTER_X, z),
         );
@@ -46,7 +51,6 @@ function createSheetGeometries(): { front: THREE.BufferGeometry; back: THREE.Buf
     positionAttribute.setUsage(THREE.DynamicDrawUsage);
     const frontUvs: number[] = [];
     const backUvs: number[] = [];
-    const indices: number[] = [];
     for (let row = 0; row < ROW_COUNT; row += 1) {
         const v = 1 - row / (ROW_COUNT - 1);
         for (let node = 0; node <= SEGMENT_COUNT; node += 1) {
@@ -55,24 +59,20 @@ function createSheetGeometries(): { front: THREE.BufferGeometry; back: THREE.Buf
             backUvs.push(1 - u, v);
         }
     }
-    const verticesPerRow = SEGMENT_COUNT + 1;
-    for (let row = 0; row < ROW_COUNT - 1; row += 1) {
-        for (let node = 0; node < SEGMENT_COUNT; node += 1) {
-            const current = row * verticesPerRow + node;
-            const below = current + verticesPerRow;
-            indices.push(current, below, current + 1, below, below + 1, current + 1);
-        }
-    }
+    const indices = gridTriangleIndices(SEGMENT_COUNT, ROW_COUNT - 1);
+    return {
+        front: sheetGeometry(positionAttribute, frontUvs, indices),
+        back: sheetGeometry(positionAttribute, backUvs, indices),
+    };
+}
 
-    const front = new THREE.BufferGeometry();
-    front.setAttribute("position", positionAttribute);
-    front.setAttribute("uv", new THREE.Float32BufferAttribute(frontUvs, 2));
-    front.setIndex(indices);
-    const back = new THREE.BufferGeometry();
-    back.setAttribute("position", positionAttribute);
-    back.setAttribute("uv", new THREE.Float32BufferAttribute(backUvs, 2));
-    back.setIndex(indices);
-    return { front, back };
+/** One face of the sheet: the shared positions with this face's UVs. */
+function sheetGeometry(positions: THREE.BufferAttribute, uvs: number[], indices: number[]): THREE.BufferGeometry {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", positions);
+    geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+    geometry.setIndex(indices);
+    return geometry;
 }
 
 /** Bends every row's chain for the given linear turn progress and writes the result into
@@ -82,9 +82,7 @@ function createSheetGeometries(): { front: THREE.BufferGeometry; back: THREE.Buf
 function layoutSheet(positions: THREE.BufferAttribute, rows: SheetRow[], progress: number): void {
     rows.forEach((row, rowIndex) => {
         const rowFraction = rowIndex / (ROW_COUNT - 1);
-        const rowProgress = easeInOutCubic(
-            Math.min(1, Math.max(0, progress * (1 + CORNER_LEAD) - CORNER_LEAD * (1 - rowFraction))),
-        );
+        const rowProgress = easeInOutCubic(clamp01(progress * (1 + CORNER_LEAD) - CORNER_LEAD * (1 - rowFraction)));
         const edgeBend = EDGE_LEAD * Math.sin(2 * Math.PI * rowProgress) - EDGE_SAG * Math.sin(Math.PI * rowProgress);
         let x = 0;
         let y = row.spineY + SHEET_LIFT;
@@ -92,7 +90,7 @@ function layoutSheet(positions: THREE.BufferAttribute, rows: SheetRow[], progres
         positions.setXYZ(rowStart, x, y, row.z);
         row.restAngles.forEach((restAngle, segment) => {
             const swungAngle = restAngle + (Math.PI - 2 * restAngle) * rowProgress;
-            const angle = swungAngle + edgeBend * ((segment + 1) / SEGMENT_COUNT) ** 1.4;
+            const angle = swungAngle + edgeBend * ((segment + 1) / SEGMENT_COUNT) ** EDGE_BEND_FALLOFF;
             x += row.segmentLengths[segment] * Math.cos(angle);
             y += row.segmentLengths[segment] * Math.sin(angle);
             positions.setXYZ(rowStart + segment + 1, x, y, row.z);
@@ -149,23 +147,11 @@ export function FlippingPage({
     return (
         <group ref={sheetRef} visible={false}>
             <mesh ref={frontRef} geometry={geometries.front}>
-                <SheetMaterial pageMaterial={pageMaterial} side={THREE.FrontSide} />
+                <PageMatchedMaterial pageMaterial={pageMaterial} side={THREE.FrontSide} />
             </mesh>
             <mesh ref={backRef} geometry={geometries.back}>
-                <SheetMaterial pageMaterial={pageMaterial} side={THREE.BackSide} />
+                <PageMatchedMaterial pageMaterial={pageMaterial} side={THREE.BackSide} />
             </mesh>
         </group>
-    );
-}
-
-/** Paper material matching the book's own pages, for one face of the turning sheet. */
-function SheetMaterial({ pageMaterial, side }: { pageMaterial: THREE.MeshStandardMaterial; side: THREE.Side }) {
-    return (
-        <meshStandardMaterial
-            color={pageMaterial.color}
-            roughness={pageMaterial.roughness}
-            metalness={pageMaterial.metalness}
-            side={side}
-        />
     );
 }

@@ -1,5 +1,6 @@
 backend/.venv/
 backend/data/
+backend/logs/
 backend/**/__pycache__/
 backend/.pytest_cache/
 backend/htmlcov/

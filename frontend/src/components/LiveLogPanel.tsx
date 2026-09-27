@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { TickData } from "../types";
 import { formatDecimal, formatFiringRate, formatPercent } from "../utils/format";
+import { appendCapped } from "../utils/array";
+import { arousalOf } from "../utils/emotions";
 import "./LiveLogPanel.css";
 
 const MAX_LOG_LINES = 200;
@@ -27,10 +29,8 @@ export function LiveLogPanel({ tick }: { tick: TickData }) {
   useEffect(() => {
     if (!tick.currentWord || tick.wordsRead === lastLoggedWordsReadRef.current) return;
     lastLoggedWordsReadRef.current = tick.wordsRead;
-    setLogLines((previousLines) => {
-      const nextLines = [...previousLines, { word: tick.currentWord!, rating0To10: tick.rating0To10, regionActivity: tick.regionActivity }];
-      return nextLines.length > MAX_LOG_LINES ? nextLines.slice(-MAX_LOG_LINES) : nextLines;
-    });
+    const logLine = { word: tick.currentWord, rating0To10: tick.rating0To10, regionActivity: tick.regionActivity };
+    setLogLines((previousLines) => appendCapped(previousLines, logLine, MAX_LOG_LINES));
   }, [tick]);
 
   useEffect(() => {
@@ -55,7 +55,7 @@ export function LiveLogPanel({ tick }: { tick: TickData }) {
       </div>
       <div className="live-log-scroll" ref={scrollContainerRef} onScroll={handleScroll}>
         {logLines.length === 0 ? (
-          <p className="live-log-empty">Waiting for words…</p>
+          <p className="empty-text">Waiting for words…</p>
         ) : (
           <table className="live-log-table">
             <thead>
@@ -82,7 +82,7 @@ export function LiveLogPanel({ tick }: { tick: TickData }) {
                   <td>{formatDecimal(line.rating0To10, 2)}</td>
                   <td>{formatFiringRate(line.regionActivity.approach ?? 0)}</td>
                   <td>{formatFiringRate(line.regionActivity.avoidance ?? 0)}</td>
-                  <td>{formatPercent(line.regionActivity.arousal ?? 0)}</td>
+                  <td>{formatPercent(arousalOf(line.regionActivity))}</td>
                 </tr>
               ))}
             </tbody>

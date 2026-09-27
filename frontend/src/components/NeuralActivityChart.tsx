@@ -1,10 +1,20 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { TickData } from "../types";
 import { AROUSAL_METRIC, DOPAMINE_METRIC, FIRING_RATE_METRIC, type MetricDefinition } from "../metrics";
+import { appendCapped } from "../utils/array";
+import { arousalOf } from "../utils/emotions";
 import { Sparkline } from "./Sparkline";
 import "./NeuralActivityChart.css";
 
 const HISTORY_LENGTH = 80;
+const TILE_SPARKLINE_HEIGHT_PX = 22;
+
+/** The live metrics shown as tiles, in order, each with how to read its value off a tick. */
+const LIVE_METRICS: { metric: MetricDefinition; valueOf: (tick: TickData) => number }[] = [
+  { metric: DOPAMINE_METRIC, valueOf: (tick) => tick.rating0To10 },
+  { metric: AROUSAL_METRIC, valueOf: (tick) => arousalOf(tick.regionActivity) },
+  { metric: FIRING_RATE_METRIC, valueOf: (tick) => tick.firingRateHz },
+];
 
 /** Footer of the brain stage: the fly's current dopamine rating, arousal and overall
  * firing rate as three tiles, each with its own rolling sparkline over the last
@@ -15,27 +25,23 @@ const HISTORY_LENGTH = 80;
  * tick - history stops accepting new points so the sparklines hold their last real trend
  * instead of flattening out into a repeated-value line. */
 export function NeuralActivityChart({ tick, isPaused }: { tick: TickData; isPaused: boolean }) {
-  const [firingRateHistory, setFiringRateHistory] = useState<number[]>([]);
-  const [ratingHistory, setRatingHistory] = useState<number[]>([]);
-  const [arousalHistory, setArousalHistory] = useState<number[]>([]);
+  const [histories, setHistories] = useState<number[][]>(() => LIVE_METRICS.map(() => []));
+  const [recordedTick, setRecordedTick] = useState<TickData | null>(null);
 
-  useEffect(() => {
-    if (isPaused) return;
-    const pushCapped = (previousHistory: number[], value: number): number[] => {
-      const nextHistory = [...previousHistory, value];
-      return nextHistory.length > HISTORY_LENGTH ? nextHistory.slice(-HISTORY_LENGTH) : nextHistory;
-    };
-    setFiringRateHistory((previousHistory) => pushCapped(previousHistory, tick.firingRateHz));
-    setRatingHistory((previousHistory) => pushCapped(previousHistory, tick.rating0To10));
-    setArousalHistory((previousHistory) => pushCapped(previousHistory, tick.regionActivity.arousal ?? 0));
-  }, [tick, isPaused]);
-
+  // Records each new tick while rendering (React's "adjust state when a prop changes"
+  // pattern) instead of in an effect, so the tiles never render a stale history first.
+  if (!isPaused && tick !== recordedTick) {
+    setRecordedTick(tick);
+    setHistories((previousHistories) =>
+      LIVE_METRICS.map(({ valueOf }, index) => appendCapped(previousHistories[index], valueOf(tick), HISTORY_LENGTH)),
+    );
+  }
 
   return (
     <div className="neural-activity">
-      <MetricTile metric={DOPAMINE_METRIC} value={tick.rating0To10} history={ratingHistory} />
-      <MetricTile metric={AROUSAL_METRIC} value={tick.regionActivity.arousal ?? 0} history={arousalHistory} />
-      <MetricTile metric={FIRING_RATE_METRIC} value={tick.firingRateHz} history={firingRateHistory} />
+      {LIVE_METRICS.map(({ metric, valueOf }, index) => (
+        <MetricTile key={metric.label} metric={metric} value={valueOf(tick)} history={histories[index]} />
+      ))}
     </div>
   );
 }
@@ -51,14 +57,14 @@ function MetricTile({ metric, value, history }: { metric: MetricDefinition; valu
       </div>
       <div className="metric-tile-value">
         {metric.formatValue(value)}
-        {metric.unit && <span className="metric-tile-unit">{metric.unit}</span>}
+        {metric.unit && <span className="unit-suffix">{metric.unit}</span>}
       </div>
       <Sparkline
         history={history}
         maxValue={metric.maxValue}
         color={metric.color}
         formatValue={metric.formatValue}
-        height={22}
+        height={TILE_SPARKLINE_HEIGHT_PX}
       />
     </div>
   );

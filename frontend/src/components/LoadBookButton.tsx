@@ -1,10 +1,21 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import { open, type OpenDialogOptions } from "@tauri-apps/plugin-dialog";
-import { loadBookByPath } from "../hooks/useLoadBook";
+import { BOOK_FILE_EXTENSIONS, loadBookByPath } from "../hooks/useLoadBook";
+import { useEscapeKey } from "../hooks/useEscapeKey";
 import { FolderBookList } from "./FolderBookList";
 import { CloseIcon, FileIcon, FolderIcon } from "./icons";
 import "./LoadBookButton.css";
+
+/** What the buttons are doing: nothing, loading a picked file, showing why it failed, or
+ * showing the books of a picked folder. The popover is open in the last two. */
+type PickerState =
+  | { kind: "closed" }
+  | { kind: "loading" }
+  | { kind: "error"; message: string }
+  | { kind: "folder"; path: string };
+
+const CLOSED: PickerState = { kind: "closed" };
 
 /** Last segment of a file-system path, used as a compact folder heading. */
 function lastPathSegment(path: string): string {
@@ -17,37 +28,17 @@ function lastPathSegment(path: string): string {
  * reading position but keeps the simulated brain's ongoing state. Errors surface in the
  * same popover; it closes via its close button or Escape. */
 export function LoadBookButton() {
-  const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
-  const [errorMessage, setErrorMessage] = useState("");
-  const [selectedFolderPath, setSelectedFolderPath] = useState<string | null>(null);
-  const isPopoverOpen = status === "error" || selectedFolderPath !== null;
+  const [pickerState, setPickerState] = useState<PickerState>(CLOSED);
+  const isPopoverOpen = pickerState.kind === "error" || pickerState.kind === "folder";
+  const closePopover = () => setPickerState(CLOSED);
 
-  useEffect(() => {
-    if (!isPopoverOpen) return;
-    /** Closes the popover on Escape, wherever focus currently is. */
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") closePopover();
-    }
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [isPopoverOpen]);
-
-  function closePopover() {
-    setStatus("idle");
-    setErrorMessage("");
-    setSelectedFolderPath(null);
-  }
-
-  function showError(message: string) {
-    setStatus("error");
-    setErrorMessage(message);
-  }
+  useEscapeKey(isPopoverOpen, closePopover);
 
   /** Opens a native picker and returns the chosen path, or null if cancelled or not
    * running inside the desktop app (a plain browser has no native dialogs). */
   async function pickPath(options: OpenDialogOptions): Promise<string | null> {
     if (!isTauri()) {
-      showError("File picking is only available in the desktop app.");
+      setPickerState({ kind: "error", message: "File picking is only available in the desktop app." });
       return null;
     }
     const selectedPath = await open(options);
@@ -55,28 +46,19 @@ export function LoadBookButton() {
   }
 
   async function handlePickFile() {
-    const selectedPath = await pickPath({ multiple: false, filters: [{ name: "Book", extensions: ["txt", "epub"] }] });
+    const selectedPath = await pickPath({ multiple: false, filters: [{ name: "Book", extensions: BOOK_FILE_EXTENSIONS }] });
     if (!selectedPath) return;
-    setSelectedFolderPath(null);
-    setStatus("loading");
-    setErrorMessage("");
+    setPickerState({ kind: "loading" });
     const result = await loadBookByPath(selectedPath);
-    if (result.ok) {
-      setStatus("idle");
-    } else {
-      showError(result.error);
-    }
+    setPickerState(result.ok ? CLOSED : { kind: "error", message: result.error });
   }
 
   async function handlePickFolder() {
     const selectedPath = await pickPath({ directory: true, multiple: false });
-    if (!selectedPath) return;
-    setStatus("idle");
-    setErrorMessage("");
-    setSelectedFolderPath(selectedPath);
+    if (selectedPath) setPickerState({ kind: "folder", path: selectedPath });
   }
 
-  const isLoading = status === "loading";
+  const isLoading = pickerState.kind === "loading";
 
   return (
     <div className="load-book">
@@ -90,13 +72,17 @@ export function LoadBookButton() {
       </button>
 
       {isPopoverOpen && (
-        <div className="load-book-popover" role="dialog" aria-label={selectedFolderPath ? "Books in folder" : "Error"}>
-          <div className="load-book-popover-header">
-            <div className="load-book-popover-heading">
-              <span className="overline">{selectedFolderPath ? "Folder" : "Couldn't load the book"}</span>
-              {selectedFolderPath && (
-                <span className="load-book-popover-title" title={selectedFolderPath}>
-                  {lastPathSegment(selectedFolderPath)}
+        <div
+          className="load-book-popover"
+          role="dialog"
+          aria-label={pickerState.kind === "folder" ? "Books in folder" : "Error"}
+        >
+          <div className="overlay-header load-book-popover-header">
+            <div className="overlay-heading load-book-popover-heading">
+              <span className="overline">{pickerState.kind === "folder" ? "Folder" : "Couldn't load the book"}</span>
+              {pickerState.kind === "folder" && (
+                <span className="load-book-popover-title truncate" title={pickerState.path}>
+                  {lastPathSegment(pickerState.path)}
                 </span>
               )}
             </div>
@@ -104,8 +90,8 @@ export function LoadBookButton() {
               <CloseIcon />
             </button>
           </div>
-          {status === "error" && <p className="error-text">{errorMessage}</p>}
-          {selectedFolderPath && <FolderBookList folderPath={selectedFolderPath} />}
+          {pickerState.kind === "error" && <p className="error-text">{pickerState.message}</p>}
+          {pickerState.kind === "folder" && <FolderBookList key={pickerState.path} folderPath={pickerState.path} />}
         </div>
       )}
     </div>

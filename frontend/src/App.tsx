@@ -9,9 +9,9 @@ import { HudPanel } from "./components/HudPanel";
 import { BookOverviewPanel } from "./components/BookOverviewPanel";
 import { useWebSocketTickData } from "./hooks/useWebSocketTickData";
 import { useBookHistory } from "./hooks/useBookHistory";
+import { BACKEND_HOST, BACKEND_WS_URL } from "./backendUrl";
+import { arousalOf } from "./utils/emotions";
 import "./App.css";
-
-const BACKEND_WS_URL = "ws://127.0.0.1:8000/ws";
 
 /** Header status for the simulation link: open sockets are live or paused, a closed one
  * is still connecting until the first tick ever arrived, and disconnected afterwards. */
@@ -28,6 +28,8 @@ function App() {
   const { tick, isConnected, sendControlMessage } = useWebSocketTickData(BACKEND_WS_URL);
   const [isPaused, setIsPaused] = useState(false);
   const { finishedBookHistory, dismissFinishedBookHistory } = useBookHistory(tick);
+  // The 3D stages stop animating the reading and the firing while paused or offline.
+  const isSimulationFrozen = isPaused || !isConnected;
 
   function togglePaused() {
     const nextIsPaused = !isPaused;
@@ -45,12 +47,12 @@ function App() {
           <div className="stage-canvas">
             <FlyBookScene
               wordsRead={tick?.wordsRead ?? 0}
-              isPaused={isPaused || !isConnected}
-              arousal={tick?.regionActivity.arousal ?? 0}
+              isPaused={isSimulationFrozen}
+              arousal={tick ? arousalOf(tick.regionActivity) : 0}
             />
           </div>
           {tick?.wantsNewBook && (
-            <aside className="bored-notice" role="status">
+            <aside className="overlay-panel bored-notice" role="status">
               <p className="bored-notice-title">
                 <span className="swatch" style={{ background: "var(--status-warning)" }} />
                 Ugh, boring — another book?
@@ -69,7 +71,7 @@ function App() {
             hint="Click a region for details · Drag to rotate"
           />
           <div className="stage-canvas">
-            <BrainScene activity={tick?.neuropilActivity} isPaused={isPaused || !isConnected} />
+            <BrainScene activity={tick?.neuropilActivity} isPaused={isSimulationFrozen} />
           </div>
           <div className="stage-footer">{tick && <NeuralActivityChart tick={tick} isPaused={isPaused} />}</div>
         </section>
@@ -83,7 +85,7 @@ function App() {
             <span className="spinner" aria-hidden="true" />
             <div>
               <p className="hud-connecting-title">Connecting to the simulation…</p>
-              <p className="hud-connecting-hint">The backend has to be running at 127.0.0.1:8000 (make backend).</p>
+              <p className="hud-connecting-hint">The backend has to be running at {BACKEND_HOST} (make backend).</p>
             </div>
           </div>
         )}

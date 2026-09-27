@@ -32,23 +32,11 @@
   opacity: 0.6;
 }
 
-.book-list-title,
-.book-list-meta {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .book-list-title {
   font-size: var(--font-size-md);
 }
 
 .book-list-meta {
   font-size: var(--font-size-xs);
-  color: var(--text-muted);
-}
-
-.book-list-empty {
-  font-size: var(--font-size-sm);
   color: var(--text-muted);
 }

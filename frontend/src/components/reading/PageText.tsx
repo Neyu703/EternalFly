@@ -5,6 +5,9 @@ import { LINE_SPACING_Z, type PageSide } from "./readingLayout";
 import { assignPageTexture, inkRegion, pageTexture } from "./pageTextures";
 import { placeFlatOnPage, type PageSurface } from "./pageSurface";
 import type { ReadingChoreography } from "./ReadingChoreography";
+import { PageMatchedMaterial } from "./PageMatchedMaterial";
+import { lerp } from "../../utils/math";
+import { gridTriangleIndices } from "../../utils/scene";
 
 const OVERLAY_LIFT = 0.0015;
 const HIGHLIGHT_LIFT = 0.0008;
@@ -20,29 +23,20 @@ function buildInkOverlayGeometry(surface: PageSurface, side: PageSide): THREE.Bu
     const region = inkRegion(side);
     const positions: number[] = [];
     const uvs: number[] = [];
-    const indices: number[] = [];
     for (let row = 0; row <= OVERLAY_ROWS; row += 1) {
         const rowFraction = row / OVERLAY_ROWS;
-        const z = region.minZ + rowFraction * (region.maxZ - region.minZ);
+        const z = lerp(region.minZ, region.maxZ, rowFraction);
         for (let column = 0; column <= OVERLAY_COLUMNS; column += 1) {
             const columnFraction = column / OVERLAY_COLUMNS;
-            const x = region.minX + columnFraction * (region.maxX - region.minX);
+            const x = lerp(region.minX, region.maxX, columnFraction);
             positions.push(x, surface.heightAt(x, z) + OVERLAY_LIFT, z);
             uvs.push(columnFraction, 1 - rowFraction);
-        }
-    }
-    const verticesPerRow = OVERLAY_COLUMNS + 1;
-    for (let row = 0; row < OVERLAY_ROWS; row += 1) {
-        for (let column = 0; column < OVERLAY_COLUMNS; column += 1) {
-            const topLeft = row * verticesPerRow + column;
-            const bottomLeft = topLeft + verticesPerRow;
-            indices.push(topLeft, bottomLeft, topLeft + 1, bottomLeft, bottomLeft + 1, topLeft + 1);
         }
     }
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
     geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
-    geometry.setIndex(indices);
+    geometry.setIndex(gridTriangleIndices(OVERLAY_COLUMNS, OVERLAY_ROWS));
     geometry.computeVertexNormals();
     return geometry;
 }
@@ -106,10 +100,8 @@ function InkPage({
 
     return (
         <mesh ref={meshRef} geometry={geometry} renderOrder={2}>
-            <meshStandardMaterial
-                color={pageMaterial.color}
-                roughness={pageMaterial.roughness}
-                metalness={pageMaterial.metalness}
+            <PageMatchedMaterial
+                pageMaterial={pageMaterial}
                 transparent
                 depthWrite={false}
                 polygonOffset

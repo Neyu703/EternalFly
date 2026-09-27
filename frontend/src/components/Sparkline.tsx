@@ -1,4 +1,5 @@
 import { useId, useState, type PointerEvent } from "react";
+import { clamp01 } from "../utils/math";
 import "./Sparkline.css";
 
 /** One plotted point in the SVG's 0..100 × 0..100 viewBox (y grows downward). */
@@ -10,7 +11,7 @@ function toChartPoints(history: number[], maxValue: number): ChartPoint[] {
   const lastIndex = Math.max(history.length - 1, 1);
   return history.map((value, index) => ({
     x: (index / lastIndex) * 100,
-    y: 100 - Math.min(1, Math.max(0, value / maxValue)) * 100,
+    y: 100 - clamp01(value / maxValue) * 100,
   }));
 }
 
@@ -62,14 +63,14 @@ export function Sparkline({
   function handlePointerMove(event: PointerEvent<SVGSVGElement>) {
     if (points.length === 0) return;
     const bounds = event.currentTarget.getBoundingClientRect();
-    const fraction = Math.min(1, Math.max(0, (event.clientX - bounds.left) / bounds.width));
+    const fraction = clamp01((event.clientX - bounds.left) / bounds.width);
     setHoveredIndex(Math.round(fraction * (points.length - 1)));
   }
 
   return (
     <div className="sparkline">
       <div className="sparkline-caption">
-        {label && <span className="sparkline-label">{label}</span>}
+        {label && <span className="sparkline-label truncate">{label}</span>}
         <span className="sparkline-readout">
           {isHovering ? formatValue(history[activeIndex]) : showDomain ? domainText : null}
         </span>

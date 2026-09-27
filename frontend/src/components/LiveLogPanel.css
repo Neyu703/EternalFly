@@ -9,11 +9,6 @@
   overflow-y: auto;
 }
 
-.live-log-empty {
-  font-size: var(--font-size-sm);
-  color: var(--text-muted);
-}
-
 .live-log-table {
   width: 100%;
   border-collapse: collapse;

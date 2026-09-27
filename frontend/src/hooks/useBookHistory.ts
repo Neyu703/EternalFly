@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { TickData } from "../types";
+import { arousalOf } from "../utils/emotions";
 
 const NUM_BUCKETS = 200;
 const RESTART_PROGRESS_DROP_THRESHOLD = 0.01;
@@ -21,6 +22,21 @@ function emptyBuckets(): BookHistoryBuckets {
   return new Array(NUM_BUCKETS).fill(null);
 }
 
+/** The bucket a 0..1 page progress falls into (the last one for a finished book). */
+function bucketIndexOf(pageProgress: number): number {
+  return Math.min(NUM_BUCKETS - 1, Math.floor(pageProgress * NUM_BUCKETS));
+}
+
+/** The part of a tick the end-of-book overview charts. */
+function toHistoryPoint(tick: TickData): BookHistoryPoint {
+  return {
+    rating0To10: tick.rating0To10,
+    arousal: arousalOf(tick.regionActivity),
+    firingRate: tick.firingRateHz,
+    emotions: tick.emotions,
+  };
+}
+
 /**
  * Tracks the fly's rating/arousal/firing-rate/emotions across an entire book's progress
  * (0..100%), bucketed into a fixed NUM_BUCKETS points regardless of how long the book is,
@@ -35,7 +51,9 @@ export function useBookHistory(tick: TickData | null): {
   finishedBookHistory: BookHistoryBuckets | null;
   dismissFinishedBookHistory: () => void;
 } {
-  const [buckets, setBuckets] = useState<BookHistoryBuckets>(emptyBuckets);
+  // A ref, not state: the buckets are never rendered, only copied into finishedBookHistory,
+  // and a ref also holds the latest tick's point when that copy is taken.
+  const bucketsRef = useRef<BookHistoryBuckets>(emptyBuckets());
   const [finishedBookHistory, setFinishedBookHistory] = useState<BookHistoryBuckets | null>(null);
   const lastWordsReadRef = useRef<number | null>(null);
   const lastProgressRef = useRef(0);
@@ -48,7 +66,7 @@ export function useBookHistory(tick: TickData | null): {
     const isNewBook = lastTotalWordsRef.current !== null && lastTotalWordsRef.current !== tick.totalWords;
     const isRestart = tick.pageProgress < lastProgressRef.current - RESTART_PROGRESS_DROP_THRESHOLD;
     if (isNewBook || isRestart) {
-      setBuckets(emptyBuckets());
+      bucketsRef.current = emptyBuckets();
       wasBookFinishedRef.current = false;
     }
     lastTotalWordsRef.current = tick.totalWords;
@@ -56,26 +74,15 @@ export function useBookHistory(tick: TickData | null): {
 
     if (tick.wordsRead !== lastWordsReadRef.current) {
       lastWordsReadRef.current = tick.wordsRead;
-      const bucketIndex = Math.min(NUM_BUCKETS - 1, Math.floor(tick.pageProgress * NUM_BUCKETS));
-      setBuckets((previousBuckets) => {
-        const nextBuckets = [...previousBuckets];
-        nextBuckets[bucketIndex] = {
-          rating0To10: tick.rating0To10,
-          arousal: tick.regionActivity.arousal ?? 0,
-          firingRate: tick.firingRateHz,
-          emotions: tick.emotions,
-        };
-        return nextBuckets;
-      });
+      bucketsRef.current[bucketIndexOf(tick.pageProgress)] = toHistoryPoint(tick);
     }
 
     if (tick.bookFinished && !wasBookFinishedRef.current) {
       wasBookFinishedRef.current = true;
-      setFinishedBookHistory(buckets);
+      setFinishedBookHistory([...bucketsRef.current]);
     } else if (!tick.bookFinished) {
       wasBookFinishedRef.current = false;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tick]);
 
   // Stable identity, so the overview dialog's Escape-key listener isn't re-registered on every tick.

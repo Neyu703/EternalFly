@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { meshesOf } from "../../utils/scene";
 
 // Only edges where neighbouring faces bend by more than this become lines: each region's
 // real contours instead of every triangle edge (~35k instead of ~150k line segments).
@@ -42,10 +43,7 @@ function bakedRegionColor(mesh: THREE.Mesh): THREE.Color {
  * (with smooth normals for rim lighting) and one contour-edge geometry. The source meshes
  * are kept, untouched, for pointer picking. */
 export function buildBrainRegions(regionsScene: THREE.Object3D): BrainRegionGeometry {
-    const sourceMeshes: THREE.Mesh[] = [];
-    regionsScene.traverse((child) => {
-        if (child instanceof THREE.Mesh) sourceMeshes.push(child);
-    });
+    const sourceMeshes = meshesOf(regionsScene);
 
     const regions: BrainRegion[] = [];
     const surfaceParts: THREE.BufferGeometry[] = [];

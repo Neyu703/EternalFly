@@ -3,6 +3,7 @@ import { useFrame } from "@react-three/fiber";
 import { useGLTF } from "@react-three/drei";
 import * as THREE from "three";
 import type { ReadingChoreography } from "./reading/ReadingChoreography";
+import { meshesOf } from "../utils/scene";
 
 const FLY_MODEL_URL = "/models/shy-fly.glb";
 const FLY_SCALE = 0.017;
@@ -28,6 +29,8 @@ const WING_FLAP_MEAN = 0.35;
 const WING_FLAP_AMPLITUDE = 0.75;
 const WALK_BOB = 0.0025;
 const BREATHING_BOB = 0.001;
+// Breathing rate of that resting bob (rad/s).
+const BREATHING_RATE = 2.4;
 
 /** A leg or wing: its node (re-pivoted onto its joint), which side of the body it's on
  * (-1 left, +1 right) and, for legs, its tripod's phase offset. */
@@ -38,15 +41,10 @@ type FlyRig = { legs: Limb[]; wings: Limb[] };
 /** All vertex positions of a node's meshes in the model's frame (the model's nodes carry
  * no transforms of their own, so raw geometry coordinates are model coordinates). */
 function modelVertices(node: THREE.Object3D): THREE.Vector3[] {
-  const vertices: THREE.Vector3[] = [];
-  node.traverse((child) => {
-    if (!(child instanceof THREE.Mesh)) return;
-    const positions = child.geometry.getAttribute("position");
-    for (let index = 0; index < positions.count; index += 1) {
-      vertices.push(new THREE.Vector3().fromBufferAttribute(positions, index));
-    }
+  return meshesOf(node).flatMap((mesh) => {
+    const positions = mesh.geometry.getAttribute("position");
+    return Array.from({ length: positions.count }, (_, index) => new THREE.Vector3().fromBufferAttribute(positions, index));
   });
-  return vertices;
 }
 
 /** Centroid of the vertices scoring in the top `fraction` of `score`'s range. */
@@ -111,7 +109,7 @@ export function Fly({ choreography }: { choreography: ReadingChoreography }) {
 
     const bob =
       WALK_BOB * legStride * Math.abs(Math.sin(gaitPhase)) +
-      BREATHING_BOB * (1 - airborneAmount) * Math.sin(clock.elapsedTime * 2.4);
+      BREATHING_BOB * (1 - airborneAmount) * Math.sin(clock.elapsedTime * BREATHING_RATE);
     fly.position.set(flyPosition.x, flyPosition.y + bob, flyPosition.z);
     fly.rotation.set(choreography.bodyPitch, headingToYaw(choreography.flyHeading), choreography.bodyRoll, "YXZ");
 

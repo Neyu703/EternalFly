@@ -35,17 +35,18 @@
   --space-3: 12px;
   --space-4: 16px;
   --space-5: 24px;
-  --space-6: 32px;
 
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 16px;
+  --radius-pill: 999px;
 
   --font-sans: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
   --font-size-xs: 11px;
   --font-size-sm: 12px;
   --font-size-md: 13px;
   --font-size-lg: 15px;
+  --font-size-xl: 22px;
 
   --shadow-overlay: 0 24px 64px rgb(0 0 0 / 0.55), 0 2px 8px rgb(0 0 0 / 0.4);
   --transition-fast: 150ms ease-out;
@@ -125,6 +126,7 @@ select {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
+  /* Holds the header's height while its right-hand meta is empty (e.g. before the first tick). */
   min-height: 18px;
 }
 
@@ -230,6 +232,7 @@ select {
   border-color: var(--border-strong);
 }
 
+/* The chevron's stroke mirrors --text-muted: a data URI can't read custom properties. */
 .select {
   appearance: none;
   padding-right: 26px;
@@ -248,6 +251,73 @@ select {
   color: var(--text-error);
 }
 
+.empty-text {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+/* A unit trailing a big number, e.g. the "/10" of the dopamine rating. */
+.unit-suffix {
+  margin-left: 2px;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+/* One line, cut off with an ellipsis when it doesn't fit. */
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A thin bar filled from the left; each fill sets its width (and color) inline. */
+.progress {
+  height: 6px;
+  overflow: hidden;
+  background: var(--surface-3);
+  border-radius: var(--radius-pill);
+}
+
+.progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  transition: width 0.25s ease-out;
+}
+
+/* A frosted card floating in a 3D stage's top-right corner. */
+.overlay-panel {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: min(280px, calc(100% - 2 * var(--space-3)));
+  padding: var(--space-3);
+  background: color-mix(in srgb, var(--surface-2) 94%, transparent);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-overlay);
+  backdrop-filter: blur(6px);
+}
+
+/* A floating card's header: its heading on the left, a close button on the right. */
+.overlay-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.overlay-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
 .spinner {
   flex-shrink: 0;
   width: 18px;
@@ -256,6 +326,11 @@ select {
   border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 0.9s linear infinite;
+}
+
+.spinner--small {
+  width: 14px;
+  height: 14px;
 }
 
 @keyframes spin {

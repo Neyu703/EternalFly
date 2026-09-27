@@ -1,7 +1,6 @@
 import * as THREE from "three";
 import {
-    TEXT_INNER_X,
-    TEXT_OUTER_X,
+    TEXT_WIDTH_X,
     WORDS_PER_LINE,
     WORDS_PER_SPREAD,
     lineBoxAtIndex,
@@ -10,12 +9,13 @@ import {
 } from "./readingLayout";
 import type { PageSurface } from "./pageSurface";
 import { PREFERS_REDUCED_MOTION } from "../../utils/motion";
+import { clamp, clamp01, damp, dampAngle, easeInOutSine, lerp, shortestAngle, smoothstep } from "../../utils/math";
 
 // Where the fly stands relative to the word it reads (its head sits just past the word).
 const HEAD_OFFSET_X = 0.02;
 const STANDING_CLEARANCE = 0.002;
 // Average distance between neighbouring words' centers along a line.
-const WORD_PITCH_X = (TEXT_OUTER_X - TEXT_INNER_X) / WORDS_PER_LINE;
+const WORD_PITCH_X = TEXT_WIDTH_X / WORDS_PER_LINE;
 
 // Weight of each new word advance in the running reading-speed averages.
 const SPEED_SMOOTHING = 0.3;
@@ -52,6 +52,53 @@ const HIGHLIGHT_FADE_RATE = 18;
 // there once single words go by too fast.
 const WATCH_HEIGHT = 0.18;
 const WATCH_DEPTH_Z = 0.46;
+// The watch point drifts on three slow, unrelated sines (rad/s and page units per axis),
+// so the hovering fly never freezes mid-air.
+const WATCH_DRIFT_X_RATE = 0.9;
+const WATCH_DRIFT_X = 0.03;
+const WATCH_DRIFT_Y_RATE = 1.7;
+const WATCH_DRIFT_Y = 0.015;
+const WATCH_DRIFT_Z_RATE = 1.3;
+const WATCH_DRIFT_Z = 0.02;
+// Skimming bobs gently up and down over the words.
+const SKIM_BOB_RATE = 2.3;
+const SKIM_BOB_HEIGHT = 0.01;
+// Hops take longer and arc higher the further they go.
+const HOP_BASE_SECONDS = 0.26;
+const HOP_SECONDS_PER_UNIT = 0.9;
+const HOP_BASE_HEIGHT = 0.03;
+const HOP_HEIGHT_PER_UNIT = 0.22;
+
+// Body attitude: exponential rates (1/s) at which each part eases to its target.
+const AIRBORNE_BLEND_RATE = 10;
+const HEADING_TURN_RATE = 5;
+const PITCH_EASE_RATE = 8;
+const ROLL_EASE_RATE = 8;
+const STRIDE_EASE_RATE = 10;
+const WING_ENERGY_EASE_RATE = 6;
+// Heading only follows the travel direction above this speed, so a nearly still fly
+// doesn't spin around.
+const WATCH_HEADING_MIN_SPEED = 0.12;
+// The page slope is read this far ahead of and behind the fly.
+const PITCH_PROBE_DISTANCE = 0.08;
+// In flight the body noses up when climbing and down when speeding forward.
+const CLIMB_PITCH_GAIN = 1.4;
+const FORWARD_PITCH_GAIN = 0.8;
+const MAX_PITCH = 0.6;
+// Aloft it banks into turns; on foot it sways with its steps.
+const BANK_PER_YAW_RATE = 0.12;
+const MAX_BANK = 0.5;
+const WALK_SWAY = 0.04;
+// Walking speed at which the legs take full strides.
+const FULL_STRIDE_SPEED = 0.06;
+// Wing energy (0..1): a slight flutter while paused, more at rest the more aroused the
+// fly is, full in flight; capped for reduced motion. Beat rate grows with the energy.
+const PAUSED_WING_ENERGY = 0.02;
+const RESTING_WING_ENERGY = 0.08;
+const AROUSAL_WING_ENERGY_GAIN = 0.45;
+const REDUCED_MOTION_WING_ENERGY = 0.3;
+const WING_BEAT_BASE_HZ = 2.5;
+const WING_BEAT_GAIN_HZ = 15;
 
 // Page turns: unhurried at a reading pace, at speed never longer than a fixed share of
 // the time a spread takes to read, so turning keeps up with the reading.
@@ -132,7 +179,7 @@ export class ReadingChoreography {
     setReadingInput(wordsRead: number, isPaused: boolean, arousal: number): void {
         this.wordsRead = wordsRead;
         this.isPaused = isPaused;
-        this.arousal = Math.max(0, Math.min(1, arousal));
+        this.arousal = clamp01(arousal);
     }
 
     /** Linear 0..1 progress of the current page turn's sheet (0 while none is turning);
@@ -174,7 +221,7 @@ export class ReadingChoreography {
     private trackReadingSpeed(): void {
         const wordsAdvanced = this.wordsRead - (this.lastWordsRead ?? this.wordsRead);
         this.lastWordsRead = this.wordsRead;
-        if (wordsAdvanced < 0 || wordsAdvanced > WORDS_PER_SPREAD) {
+        if (isLeap(wordsAdvanced)) {
             // Restart, new book or a leap (e.g. reconnecting mid-book): start measuring afresh.
             this.averageWordsPerChange = 0;
             this.averageSecondsPerChange = 0;
@@ -196,7 +243,7 @@ export class ReadingChoreography {
     private advanceReadingCursor(delta: number): void {
         const targetIndex = this.currentWordIndex();
         const gap = targetIndex - this.readingCursor;
-        if (gap < 0 || gap > WORDS_PER_SPREAD) {
+        if (isLeap(gap)) {
             this.readingCursor = targetIndex;
             return;
         }
@@ -310,7 +357,8 @@ export class ReadingChoreography {
      * turns, clear of the sweeping sheet. */
     private flyAlongReading(delta: number, readingSpot: THREE.Vector3, isTurning: boolean): void {
         const watchAmount = isTurning ? 1 : this.scanAmount;
-        skimTarget.set(readingSpot.x, readingSpot.y + SKIM_HEIGHT + Math.sin(this.elapsedTime * 2.3) * 0.01, readingSpot.z);
+        const bob = Math.sin(this.elapsedTime * SKIM_BOB_RATE) * SKIM_BOB_HEIGHT;
+        skimTarget.set(readingSpot.x, readingSpot.y + SKIM_HEIGHT + bob, readingSpot.z);
         const target = this.watchPoint(readingSpot).lerp(skimTarget, 1 - watchAmount);
         targetVelocity.set(this.lineGlideSpeed() * (1 - watchAmount), 0, 0);
         const baseFrequency = isTurning ? ESCAPE_SPRING_FREQUENCY : SKIM_SPRING_FREQUENCY;
@@ -328,9 +376,9 @@ export class ReadingChoreography {
     private watchPoint(readingSpot: THREE.Vector3): THREE.Vector3 {
         const time = this.elapsedTime;
         return springTarget.set(
-            readingSpot.x + Math.sin(time * 0.9) * 0.03,
-            WATCH_HEIGHT + Math.sin(time * 1.7) * 0.015,
-            WATCH_DEPTH_Z + Math.sin(time * 1.3) * 0.02,
+            readingSpot.x + Math.sin(time * WATCH_DRIFT_X_RATE) * WATCH_DRIFT_X,
+            WATCH_HEIGHT + Math.sin(time * WATCH_DRIFT_Y_RATE) * WATCH_DRIFT_Y,
+            WATCH_DEPTH_Z + Math.sin(time * WATCH_DRIFT_Z_RATE) * WATCH_DRIFT_Z,
         );
     }
 
@@ -350,7 +398,7 @@ export class ReadingChoreography {
             to: landing,
             elapsed: 0,
             duration: hopDuration(distance),
-            height: 0.03 + distance * 0.22,
+            height: HOP_BASE_HEIGHT + distance * HOP_HEIGHT_PER_UNIT,
         };
     }
 
@@ -394,42 +442,50 @@ export class ReadingChoreography {
      * the watch point; follows the page's slope on foot, noses into the motion and banks
      * into turns aloft. */
     private orientFly(delta: number, surface: PageSurface): void {
-        const isAirborne = this.flight !== null || this.hop !== null;
-        this.airborneAmount = damp(this.airborneAmount, isAirborne ? 1 : 0, 10, delta);
+        this.airborneAmount = damp(this.airborneAmount, this.isAirborne ? 1 : 0, AIRBORNE_BLEND_RATE, delta);
 
-        const horizontalSpeed = Math.hypot(this.flyVelocity.x, this.flyVelocity.z);
         const desiredHeading =
-            this.flight === "watch" && horizontalSpeed > 0.12 ? Math.atan2(this.flyVelocity.z, this.flyVelocity.x) : 0;
+            this.flight === "watch" && horizontalSpeedOf(this.flyVelocity) > WATCH_HEADING_MIN_SPEED
+                ? Math.atan2(this.flyVelocity.z, this.flyVelocity.x)
+                : 0;
         const previousHeading = this.flyHeading;
-        this.flyHeading = dampAngle(this.flyHeading, desiredHeading, 5, delta);
+        this.flyHeading = dampAngle(this.flyHeading, desiredHeading, HEADING_TURN_RATE, delta);
         const yawRate = shortestAngle(this.flyHeading - previousHeading) / Math.max(delta, 1e-4);
 
         const headingX = Math.cos(this.flyHeading);
         const headingZ = Math.sin(this.flyHeading);
-        const surfaceAhead = surface.heightAt(this.flyPosition.x + headingX * 0.08, this.flyPosition.z + headingZ * 0.08);
-        const surfaceBehind = surface.heightAt(this.flyPosition.x - headingX * 0.08, this.flyPosition.z - headingZ * 0.08);
-        const surfacePitch = Math.atan2(surfaceAhead - surfaceBehind, 0.16);
+        const probeX = headingX * PITCH_PROBE_DISTANCE;
+        const probeZ = headingZ * PITCH_PROBE_DISTANCE;
+        const surfaceAhead = surface.heightAt(this.flyPosition.x + probeX, this.flyPosition.z + probeZ);
+        const surfaceBehind = surface.heightAt(this.flyPosition.x - probeX, this.flyPosition.z - probeZ);
+        const surfacePitch = Math.atan2(surfaceAhead - surfaceBehind, 2 * PITCH_PROBE_DISTANCE);
         const forwardSpeed = this.flyVelocity.x * headingX + this.flyVelocity.z * headingZ;
-        const flightPitch = this.flyVelocity.y * 1.4 - forwardSpeed * 0.8;
-        const targetPitch = clamp(lerp(surfacePitch, flightPitch, this.airborneAmount), -0.6, 0.6);
-        this.bodyPitch = damp(this.bodyPitch, targetPitch, 8, delta);
+        const flightPitch = this.flyVelocity.y * CLIMB_PITCH_GAIN - forwardSpeed * FORWARD_PITCH_GAIN;
+        const targetPitch = clamp(lerp(surfacePitch, flightPitch, this.airborneAmount), -MAX_PITCH, MAX_PITCH);
+        this.bodyPitch = damp(this.bodyPitch, targetPitch, PITCH_EASE_RATE, delta);
 
-        const bankRoll = clamp(-yawRate * 0.12, -0.5, 0.5) * this.airborneAmount;
-        const walkSway = 0.04 * this.legStride * Math.sin(this.gaitPhase);
-        this.bodyRoll = damp(this.bodyRoll, bankRoll + walkSway, 8, delta);
+        const bankRoll = clamp(-yawRate * BANK_PER_YAW_RATE, -MAX_BANK, MAX_BANK) * this.airborneAmount;
+        const walkSway = WALK_SWAY * this.legStride * Math.sin(this.gaitPhase);
+        this.bodyRoll = damp(this.bodyRoll, bankRoll + walkSway, ROLL_EASE_RATE, delta);
+    }
+
+    /** Whether the fly is off the page: flying or mid-hop. */
+    private get isAirborne(): boolean {
+        return this.flight !== null || this.hop !== null;
     }
 
     /** Leg gait from walking speed; wing energy from flight, excitement (arousal) and pause. */
     private animateLimbs(delta: number): void {
-        const horizontalSpeed = Math.hypot(this.flyVelocity.x, this.flyVelocity.z);
-        const isAirborne = this.flight !== null || this.hop !== null;
-        this.legStride = damp(this.legStride, isAirborne ? 0 : clamp01(horizontalSpeed / 0.06), 10, delta);
+        const horizontalSpeed = horizontalSpeedOf(this.flyVelocity);
+        const isAirborne = this.isAirborne;
+        const targetStride = isAirborne ? 0 : clamp01(horizontalSpeed / FULL_STRIDE_SPEED);
+        this.legStride = damp(this.legStride, targetStride, STRIDE_EASE_RATE, delta);
         if (!isAirborne) this.gaitPhase += horizontalSpeed * GAIT_CYCLES_PER_UNIT * Math.PI * 2 * delta;
 
-        const restingEnergy = this.isPaused ? 0.02 : 0.08 + 0.45 * this.arousal;
-        const targetEnergy = Math.min(isAirborne ? 1 : restingEnergy, PREFERS_REDUCED_MOTION ? 0.3 : 1);
-        this.wingEnergy = damp(this.wingEnergy, targetEnergy, 6, delta);
-        this.wingPhase += Math.PI * 2 * (2.5 + 15 * this.wingEnergy) * delta;
+        const restingEnergy = this.isPaused ? PAUSED_WING_ENERGY : RESTING_WING_ENERGY + AROUSAL_WING_ENERGY_GAIN * this.arousal;
+        const targetEnergy = Math.min(isAirborne ? 1 : restingEnergy, PREFERS_REDUCED_MOTION ? REDUCED_MOTION_WING_ENERGY : 1);
+        this.wingEnergy = damp(this.wingEnergy, targetEnergy, WING_ENERGY_EASE_RATE, delta);
+        this.wingPhase += Math.PI * 2 * (WING_BEAT_BASE_HZ + WING_BEAT_GAIN_HZ * this.wingEnergy) * delta;
     }
 
     /** Lays the highlighter under the word the cursor is on, widening it to the whole line
@@ -451,51 +507,16 @@ function standingSpot(x: number, z: number, surface: PageSurface): THREE.Vector3
 
 /** How long a hop covering `distance` takes. */
 function hopDuration(distance: number): number {
-    return 0.26 + distance * 0.9;
+    return HOP_BASE_SECONDS + distance * HOP_SECONDS_PER_UNIT;
 }
 
-/** Frame-rate independent exponential approach of current toward target. */
-function damp(current: number, target: number, rate: number, delta: number): number {
-    return target + (current - target) * Math.exp(-rate * delta);
+/** Speed in the page plane (ignoring climbing and sinking). */
+function horizontalSpeedOf(velocity: THREE.Vector3): number {
+    return Math.hypot(velocity.x, velocity.z);
 }
 
-/** Like damp, but along the shortest way around the circle. */
-function dampAngle(current: number, target: number, rate: number, delta: number): number {
-    return current + shortestAngle(target - current) * (1 - Math.exp(-rate * delta));
-}
-
-/** Wraps an angle difference into (-π, π]. */
-function shortestAngle(angle: number): number {
-    return Math.atan2(Math.sin(angle), Math.cos(angle));
-}
-
-/** Limits value to [min, max]. */
-function clamp(value: number, min: number, max: number): number {
-    return Math.min(max, Math.max(min, value));
-}
-
-/** Limits value to [0, 1]. */
-function clamp01(value: number): number {
-    return clamp(value, 0, 1);
-}
-
-/** Linear interpolation from `from` to `to`. */
-function lerp(from: number, to: number, fraction: number): number {
-    return from + (to - from) * fraction;
-}
-
-/** 0 below edgeStart, 1 above edgeEnd, a smooth S-curve in between. */
-function smoothstep(edgeStart: number, edgeEnd: number, value: number): number {
-    const fraction = clamp01((value - edgeStart) / (edgeEnd - edgeStart));
-    return fraction * fraction * (3 - 2 * fraction);
-}
-
-/** Gentle ease in and out over 0..1, used for hop arcs. */
-function easeInOutSine(progress: number): number {
-    return 0.5 - Math.cos(Math.PI * progress) / 2;
-}
-
-/** Stronger ease in and out over 0..1, used for page turns. */
-export function easeInOutCubic(progress: number): number {
-    return progress < 0.5 ? 4 * progress ** 3 : 1 - (-2 * progress + 2) ** 3 / 2;
+/** Whether a jump of wordDelta words in the reading is a leap rather than reading on: going
+ * back (a restart or new book) or more than a spread ahead (e.g. reconnecting mid-book). */
+function isLeap(wordDelta: number): boolean {
+    return wordDelta < 0 || wordDelta > WORDS_PER_SPREAD;
 }

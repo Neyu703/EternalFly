@@ -6,7 +6,6 @@
   grid-template-columns: minmax(0, 1fr);
   width: 100vw;
   height: 100vh;
-  background: var(--color-page);
 }
 
 .stage {
@@ -85,6 +84,8 @@
   --chart-surface: var(--surface-1);
 }
 
+/* Reserve each footer's full height before the first tick arrives, so the stages above
+   don't jump when the reading status (reader) or the three metric tiles (brain) appear. */
 .stage-panel--reader .stage-footer {
   min-height: 78px;
 }
@@ -94,21 +95,9 @@
 }
 
 .bored-notice {
-  position: absolute;
-  top: var(--space-3);
-  right: var(--space-3);
   z-index: 2;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  width: min(280px, calc(100% - 2 * var(--space-3)));
   max-height: calc(100% - 2 * var(--space-3));
-  padding: var(--space-3);
-  background: rgb(20 27 35 / 0.94);
-  border: 1px solid rgb(250 178 25 / 0.45);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-overlay);
-  backdrop-filter: blur(6px);
+  border-color: color-mix(in srgb, var(--status-warning) 45%, transparent);
 }
 
 .bored-notice-title {
@@ -124,6 +113,8 @@
   color: var(--text-secondary);
 }
 
+/* Tall enough for the playback card's four rows, and growing a little with the window
+   without taking height from the 3D stages. */
 .hud {
   height: clamp(220px, 24vh, 260px);
   padding: var(--space-3);

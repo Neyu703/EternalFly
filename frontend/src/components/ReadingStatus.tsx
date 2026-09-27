@@ -13,7 +13,7 @@ export function ReadingStatus({ tick }: { tick: TickData }) {
             <div className="reading-status-row">
                 <div className="reading-status-word-block">
                     <span className="overline">Now reading</span>
-                    <span className="reading-status-word">{currentWordText}</span>
+                    <span className="reading-status-word truncate">{currentWordText}</span>
                 </div>
                 <span className="reading-status-count">
                     {formatInteger(tick.wordsRead)} / {formatInteger(tick.totalWords)} words · {formatPercent(tick.pageProgress)}
@@ -27,7 +27,7 @@ export function ReadingStatus({ tick }: { tick: TickData }) {
                 aria-valuemax={100}
                 aria-valuenow={progressPercent}
             >
-                <div className="progress-fill" style={{ width: `${tick.pageProgress * 100}%` }} />
+                <div className="progress-fill reading-status-progress-fill" style={{ width: `${tick.pageProgress * 100}%` }} />
             </div>
         </div>
     );

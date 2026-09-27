@@ -3,14 +3,20 @@ import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { placeFlatOnPage, type PageSurface } from "./pageSurface";
 import type { ReadingChoreography } from "./ReadingChoreography";
+import { PAGE_OUTER_X } from "./readingLayout";
+import { clamp01 } from "../../utils/math";
+import { createCanvas2D } from "../../utils/scene";
 
 const SHADOW_LIFT = 0.0012;
 const SHADOW_BASE_SIZE = 0.14;
 const SHADOW_MAX_OPACITY = 0.45;
 // Height above the page at which the shadow has faded out completely.
 const SHADOW_FADE_HEIGHT = 0.32;
+// How much wider the shadow gets at SHADOW_FADE_HEIGHT, and its width-to-depth ratio.
+const SHADOW_MAX_GROWTH = 1.2;
+const SHADOW_ASPECT = 0.72;
 // The shadow only lands on the pages; past their edges it fades out over this margin.
-const PAGE_HALF_WIDTH = 0.4;
+const PAGE_HALF_WIDTH = PAGE_OUTER_X;
 const PAGE_HALF_DEPTH = 0.3;
 const EDGE_FADE_MARGIN = 0.04;
 
@@ -22,10 +28,7 @@ let sharedBlobTexture: THREE.CanvasTexture | null = null;
 function blobTexture(): THREE.CanvasTexture {
     if (sharedBlobTexture) return sharedBlobTexture;
     const size = 128;
-    const canvas = document.createElement("canvas");
-    canvas.width = size;
-    canvas.height = size;
-    const context = canvas.getContext("2d")!;
+    const { canvas, context } = createCanvas2D(size, size);
     const gradient = context.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
     gradient.addColorStop(0, "rgba(0, 0, 0, 1)");
     gradient.addColorStop(0.45, "rgba(0, 0, 0, 0.55)");
@@ -51,15 +54,15 @@ export function FlyShadow({ surface, choreography }: { surface: PageSurface; cho
         const shadow = shadowRef.current;
         if (!shadow) return;
         const { x, y, z } = choreography.flyPosition;
-        const lift = Math.min(1, Math.max(0, y - surface.heightAt(x, z)) / SHADOW_FADE_HEIGHT);
+        const lift = clamp01((y - surface.heightAt(x, z)) / SHADOW_FADE_HEIGHT);
         placeFlatOnPage(shadow, surface, x, z, SHADOW_LIFT);
-        shadow.scale.setScalar(SHADOW_BASE_SIZE * (1 + lift * 1.2));
+        shadow.scale.setScalar(SHADOW_BASE_SIZE * (1 + lift * SHADOW_MAX_GROWTH));
         (shadow.material as THREE.MeshBasicMaterial).opacity = SHADOW_MAX_OPACITY * (1 - lift) * onPageAmount(x, z);
     });
 
     return (
         <mesh ref={shadowRef} renderOrder={3}>
-            <planeGeometry args={[1, 0.72]} />
+            <planeGeometry args={[1, SHADOW_ASPECT]} />
             <meshBasicMaterial
                 map={blobTexture()}
                 transparent

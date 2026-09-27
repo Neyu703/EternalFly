@@ -1,3 +1,5 @@
+import { clamp } from "../../utils/math";
+
 /** Plain-language descriptions of the 78 FlyWire neuropil regions (codes like "ME_R"),
  * grouped by the brain areas used in the FlyWire/hemibrain nomenclature. */
 
@@ -86,16 +88,19 @@ export type RegionDescription = {
     role: string;
 };
 
+// How a region code's side suffix reads; codes without one are unpaired (midline).
+const SIDE_NAMES = { L: "left hemisphere", R: "right hemisphere" } as const;
+
 /** Describes a region code such as "ME_R" (fly's right medulla) or "EB" (unpaired). */
 export function describeRegion(code: string): RegionDescription {
-    const sideSuffix = code.match(/_(L|R)$/)?.[1];
+    const sideSuffix = code.match(/_(L|R)$/)?.[1] as keyof typeof SIDE_NAMES | undefined;
     const baseCode = sideSuffix ? code.slice(0, -2) : code;
     const neuropil = NEUROPILS[baseCode];
     const area: BrainArea = neuropil ? AREAS[neuropil.area] : { name: "Neuropil", role: "" };
     return {
         code,
         name: neuropil?.name ?? baseCode,
-        side: sideSuffix === "L" ? "left hemisphere" : sideSuffix === "R" ? "right hemisphere" : "midline",
+        side: sideSuffix ? SIDE_NAMES[sideSuffix] : "midline",
         areaName: area.name,
         role: area.role,
     };
@@ -106,5 +111,5 @@ export function describeRegion(code: string): RegionDescription {
 export function regionActivityLevel(firingRateHz: number): number {
     if (!(firingRateHz > 0)) return 0;
     const logLevel = Math.log(firingRateHz / RATE_FLOOR_HZ) / Math.log(RATE_CEILING_HZ / RATE_FLOOR_HZ);
-    return Math.min(1, Math.max(MIN_FIRING_LEVEL, logLevel));
+    return clamp(logLevel, MIN_FIRING_LEVEL, 1);
 }

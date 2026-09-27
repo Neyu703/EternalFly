@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
-import { BrainGlow, CLICK_SLOP_PX, type NeuropilActivity } from "./BrainGlow";
+import { BrainGlow, CLICK_SLOP_PX, OVERVIEW_DISTANCE, type NeuropilActivity } from "./BrainGlow";
 import type { BrainRegion } from "./brain/brainGeometry";
 import { describeRegion, regionActivityLevel } from "./brain/brainRegionInfo";
 import { formatFiringRate } from "../utils/format";
 import { PREFERS_REDUCED_MOTION } from "../utils/motion";
+import { useEscapeKey } from "../hooks/useEscapeKey";
 import { CloseIcon } from "./icons";
 import "./BrainScene.css";
 
@@ -39,15 +40,7 @@ export function BrainScene({ activity, isPaused }: { activity?: NeuropilActivity
   const idleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pointerDownRef = useRef({ x: 0, y: 0 });
 
-  useEffect(() => {
-    if (!selectedCode) return;
-    /** Clears the selection on Escape. */
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") setSelectedCode(null);
-    }
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedCode]);
+  useEscapeKey(selectedCode !== null, () => setSelectedCode(null));
 
   useEffect(() => () => clearTimeout(idleTimeoutRef.current ?? undefined), []);
 
@@ -91,7 +84,7 @@ export function BrainScene({ activity, isPaused }: { activity?: NeuropilActivity
       onPointerDown={(event) => (pointerDownRef.current = { x: event.clientX, y: event.clientY })}
       onPointerLeave={() => setHover(null)}
     >
-      <Canvas camera={{ position: [0, 0, 2.6], fov: 50 }} onPointerMissed={handlePointerMissed}>
+      <Canvas camera={{ position: [0, 0, OVERVIEW_DISTANCE], fov: 50 }} onPointerMissed={handlePointerMissed}>
         <group scale={0.28}>
           <BrainGlow
             activity={activity}
@@ -159,9 +152,9 @@ function RegionCard({
   const region = describeRegion(code);
   const barFraction = activity !== undefined ? regionActivityLevel(activity) : 0;
   return (
-    <aside className="region-card" aria-label={`Brain region ${region.name}`}>
-      <div className="region-card-header">
-        <div className="region-card-heading">
+    <aside className="overlay-panel region-card" aria-label={`Brain region ${region.name}`}>
+      <div className="overlay-header">
+        <div className="overlay-heading">
           <span className="overline">
             {region.areaName === region.name ? region.code : `${region.areaName} · ${region.code}`}
           </span>
@@ -175,8 +168,8 @@ function RegionCard({
       {region.role && <p className="region-card-role">{region.role}</p>}
       <div className="region-card-activity">
         <span className="region-card-activity-label">Firing rate</span>
-        <span className="region-card-activity-track">
-          <span className="region-card-activity-fill" style={{ width: `${barFraction * 100}%`, background: color }} />
+        <span className="progress">
+          <span className="progress-fill" style={{ width: `${barFraction * 100}%`, background: color }} />
         </span>
         <span className="region-card-activity-value">{activity !== undefined ? formatFiringRate(activity) : "—"}</span>
       </div>

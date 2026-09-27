@@ -18,6 +18,34 @@ export function createRegionUniforms(regionCount: number): RegionUniforms {
     };
 }
 
+// What the region vertex shader hands every region fragment shader.
+const REGION_VARYINGS = /* glsl */ `
+    varying vec3 vColor;
+    varying float vActivity;
+    varying float vFlash;
+    varying float vHover;
+    varying float vDimmed;
+`;
+
+// Fresnel rim lighting: the vertex shader passes the view-space normal and view direction
+// (it must have computed viewPosition first), the fragment shader turns them into a rim
+// factor that is 1 where a face is seen edge-on and 0 where it is seen head-on.
+const RIM_VARYINGS = /* glsl */ `
+    varying vec3 vViewNormal;
+    varying vec3 vViewDirection;
+`;
+const RIM_VERTEX = /* glsl */ `
+    vViewNormal = normalize(normalMatrix * normal);
+    vViewDirection = normalize(-viewPosition.xyz);
+`;
+const RIM_FRAGMENT = /* glsl */ `
+    ${RIM_VARYINGS}
+
+    float fresnelRim(float sharpness) {
+        return pow(1.0 - abs(dot(normalize(vViewNormal), normalize(vViewDirection))), sharpness);
+    }
+`;
+
 // Per-vertex region lookups shared by surfaces and edges. `dimmed` marks every region but
 // the selected one while a selection exists.
 const REGION_VERTEX_SHADER = /* glsl */ `
@@ -25,14 +53,9 @@ const REGION_VERTEX_SHADER = /* glsl */ `
     uniform vec2 regionFiring[REGION_COUNT];
     uniform float hoveredRegion;
     uniform float selectedRegion;
-    varying vec3 vColor;
-    varying float vActivity;
-    varying float vFlash;
-    varying float vHover;
-    varying float vDimmed;
+    ${REGION_VARYINGS}
     #ifdef USE_RIM
-        varying vec3 vViewNormal;
-        varying vec3 vViewDirection;
+        ${RIM_VARYINGS}
     #endif
 
     void main() {
@@ -45,8 +68,7 @@ const REGION_VERTEX_SHADER = /* glsl */ `
         vColor = color.rgb;
         vec4 viewPosition = modelViewMatrix * vec4(position, 1.0);
         #ifdef USE_RIM
-            vViewNormal = normalize(normalMatrix * normal);
-            vViewDirection = normalize(-viewPosition.xyz);
+            ${RIM_VERTEX}
         #endif
         gl_Position = projectionMatrix * viewPosition;
     }
@@ -56,79 +78,92 @@ const REGION_VERTEX_SHADER = /* glsl */ `
 // and a flash or a hover lifts it toward white. While another region is selected, a
 // region's steady glow dims hard but its flashes only partly, so firing stays visible.
 const REGION_SHADING = /* glsl */ `
+    const float RESTING_SATURATION = 0.62;
+    const float FLASH_WHITENING = 0.12;
+    const float HOVER_WHITENING = 0.35;
+    const float DIMMED_STEADY_GLOW = 0.14;
+    const float DIMMED_FLASH_GLOW = 0.45;
+
     vec3 regionTint() {
         float luminance = dot(vColor, vec3(0.2126, 0.7152, 0.0722));
-        vec3 restingTint = mix(vec3(luminance), vColor, 0.62);
+        vec3 restingTint = mix(vec3(luminance), vColor, RESTING_SATURATION);
         vec3 tint = mix(restingTint, vColor, vActivity);
-        return mix(tint, vec3(1.0), 0.12 * vFlash + 0.35 * vHover);
+        return mix(tint, vec3(1.0), FLASH_WHITENING * vFlash + HOVER_WHITENING * vHover);
     }
 
     float steadyFocus() {
-        return mix(1.0, 0.14, vDimmed);
+        return mix(1.0, DIMMED_STEADY_GLOW, vDimmed);
     }
 
     float flashFocus() {
-        return mix(1.0, 0.45, vDimmed);
+        return mix(1.0, DIMMED_FLASH_GLOW, vDimmed);
     }
 `;
 
 const SURFACE_FRAGMENT_SHADER = /* glsl */ `
-    varying vec3 vColor;
-    varying float vActivity;
-    varying float vFlash;
-    varying float vHover;
-    varying float vDimmed;
-    varying vec3 vViewNormal;
-    varying vec3 vViewDirection;
+    ${REGION_VARYINGS}
+    ${RIM_FRAGMENT}
     ${REGION_SHADING}
 
+    // Dozens of shells overlap in the central brain; low per-layer intensity keeps the
+    // additive sum from blowing out to white there. An idle region keeps
+    // RESTING_GLOW_SHARE of its full glow.
+    const float RIM_SHARPNESS = 2.0;
+    const float BASE_GLOW = 0.003;
+    const float RIM_GLOW = 0.05;
+    const float RESTING_GLOW_SHARE = 0.25;
+    const float HOVER_GLOW = 0.05;
+    const float HOVER_RIM_GLOW = 0.3;
+    const float FLASH_GLOW = 0.01;
+    const float FLASH_RIM_GLOW = 0.2;
+
     void main() {
-        // Fresnel rim: faces seen edge-on glow, faces seen head-on stay see-through.
-        float rim = pow(1.0 - abs(dot(normalize(vViewNormal), normalize(vViewDirection))), 2.0);
-        // Dozens of shells overlap in the central brain; low per-layer intensity keeps
-        // the additive sum from blowing out to white there.
-        float glow = (0.003 + 0.05 * rim) * (0.25 + 0.75 * vActivity) + vHover * (0.05 + 0.3 * rim);
-        float flash = vFlash * (0.01 + 0.2 * rim);
+        // Faces seen edge-on glow, faces seen head-on stay see-through.
+        float rim = fresnelRim(RIM_SHARPNESS);
+        float activityShare = RESTING_GLOW_SHARE + (1.0 - RESTING_GLOW_SHARE) * vActivity;
+        float glow = (BASE_GLOW + RIM_GLOW * rim) * activityShare + vHover * (HOVER_GLOW + HOVER_RIM_GLOW * rim);
+        float flash = vFlash * (FLASH_GLOW + FLASH_RIM_GLOW * rim);
         gl_FragColor = vec4(regionTint(), glow * steadyFocus() + flash * flashFocus());
         #include <colorspace_fragment>
     }
 `;
 
 const EDGE_FRAGMENT_SHADER = /* glsl */ `
-    varying vec3 vColor;
-    varying float vActivity;
-    varying float vFlash;
-    varying float vHover;
-    varying float vDimmed;
+    ${REGION_VARYINGS}
     ${REGION_SHADING}
 
+    const float BASE_GLOW = 0.01;
+    const float ACTIVITY_GLOW = 0.05;
+    const float HOVER_GLOW = 0.4;
+    const float FLASH_GLOW = 0.35;
+
     void main() {
-        float glow = 0.01 + 0.05 * vActivity + 0.4 * vHover;
-        gl_FragColor = vec4(regionTint(), glow * steadyFocus() + 0.35 * vFlash * flashFocus());
+        float glow = BASE_GLOW + ACTIVITY_GLOW * vActivity + HOVER_GLOW * vHover;
+        gl_FragColor = vec4(regionTint(), glow * steadyFocus() + FLASH_GLOW * vFlash * flashFocus());
         #include <colorspace_fragment>
     }
 `;
 
 const OUTLINE_VERTEX_SHADER = /* glsl */ `
-    varying vec3 vViewNormal;
-    varying vec3 vViewDirection;
+    ${RIM_VARYINGS}
 
     void main() {
         vec4 viewPosition = modelViewMatrix * vec4(position, 1.0);
-        vViewNormal = normalize(normalMatrix * normal);
-        vViewDirection = normalize(-viewPosition.xyz);
+        ${RIM_VERTEX}
         gl_Position = projectionMatrix * viewPosition;
     }
 `;
 
 const OUTLINE_FRAGMENT_SHADER = /* glsl */ `
     uniform vec3 outlineColor;
-    varying vec3 vViewNormal;
-    varying vec3 vViewDirection;
+    ${RIM_FRAGMENT}
+
+    const float RIM_SHARPNESS = 3.0;
+    const float BASE_ALPHA = 0.012;
+    const float RIM_ALPHA = 0.3;
 
     void main() {
-        float rim = pow(1.0 - abs(dot(normalize(vViewNormal), normalize(vViewDirection))), 3.0);
-        gl_FragColor = vec4(outlineColor, 0.012 + 0.3 * rim);
+        gl_FragColor = vec4(outlineColor, BASE_ALPHA + RIM_ALPHA * fresnelRim(RIM_SHARPNESS));
         #include <colorspace_fragment>
     }
 `;
@@ -141,28 +176,32 @@ const GLOW_SETTINGS = {
     blending: THREE.AdditiveBlending,
 } as const;
 
-/** Rim-lit, activity-driven surfaces of all regions (one draw call). */
-export function createRegionSurfaceMaterial(uniforms: RegionUniforms, regionCount: number): THREE.ShaderMaterial {
+/** An additive, vertex-colored region material drawing all regions in one draw call with
+ * fragmentShader, sharing uniforms (and any extra shader defines). */
+function createRegionMaterial(
+    uniforms: RegionUniforms,
+    regionCount: number,
+    fragmentShader: string,
+    extraDefines: Record<string, string> = {},
+): THREE.ShaderMaterial {
     return new THREE.ShaderMaterial({
         ...GLOW_SETTINGS,
         uniforms,
-        defines: { REGION_COUNT: regionCount, USE_RIM: "" },
+        defines: { REGION_COUNT: regionCount, ...extraDefines },
         vertexShader: REGION_VERTEX_SHADER,
-        fragmentShader: SURFACE_FRAGMENT_SHADER,
+        fragmentShader,
         vertexColors: true,
     });
 }
 
+/** Rim-lit, activity-driven surfaces of all regions (one draw call). */
+export function createRegionSurfaceMaterial(uniforms: RegionUniforms, regionCount: number): THREE.ShaderMaterial {
+    return createRegionMaterial(uniforms, regionCount, SURFACE_FRAGMENT_SHADER, { USE_RIM: "" });
+}
+
 /** Contour lines of all regions, brightening with activity (one draw call). */
 export function createRegionEdgeMaterial(uniforms: RegionUniforms, regionCount: number): THREE.ShaderMaterial {
-    return new THREE.ShaderMaterial({
-        ...GLOW_SETTINGS,
-        uniforms,
-        defines: { REGION_COUNT: regionCount },
-        vertexShader: REGION_VERTEX_SHADER,
-        fragmentShader: EDGE_FRAGMENT_SHADER,
-        vertexColors: true,
-    });
+    return createRegionMaterial(uniforms, regionCount, EDGE_FRAGMENT_SHADER);
 }
 
 /** The whole brain's shell: nearly invisible face-on, a soft glowing silhouette edge-on. */

@@ -31,12 +31,9 @@
     min-width: 0;
     margin-left: var(--space-2);
     padding-left: var(--space-3);
-    overflow: hidden;
     border-left: 1px solid var(--border-default);
     font-size: var(--font-size-md);
     color: var(--text-muted);
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
 
 .status-pill {
@@ -48,21 +45,18 @@
     padding: 0 var(--space-3);
     background: var(--surface-2);
     border: 1px solid var(--border-subtle);
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     font-size: var(--font-size-sm);
     color: var(--text-secondary);
 }
 
 .status-pill-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
     background: var(--text-muted);
 }
 
 .status-pill--live .status-pill-dot {
     background: var(--status-good);
-    box-shadow: 0 0 0 3px rgb(12 163 12 / 0.22);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-good) 22%, transparent);
     animation: pulse 2s ease-in-out infinite;
 }
 

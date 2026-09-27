@@ -11,8 +11,10 @@ import {
   createRegionUniforms,
   type RegionUniforms,
 } from "./brain/brainMaterials";
+import { damp } from "../utils/math";
+import { meshesOf } from "../utils/scene";
 
-/** Live activity per neuropil region, keyed the same as the region mesh node names (0..1 firing rate). */
+/** Live activity per neuropil region, keyed the same as the region mesh node names (firing rate in Hz). */
 export type NeuropilActivity = Record<string, number>;
 
 const OUTLINE_MODEL_URL = "/models/brain-outline.glb";
@@ -31,15 +33,20 @@ const REFRACTORY_FLASH_LEVEL = Math.exp(-FLASH_FADE_RATE * FLASH_REFRACTORY_SECO
 // Pointer moves shorter than this (px) between press and release count as a click, not a drag.
 export const CLICK_SLOP_PX = 5;
 const FOCUS_DISTANCE = 1.45;
-const OVERVIEW_DISTANCE = 2.6;
+export const OVERVIEW_DISTANCE = 2.6;
 const FOCUS_SECONDS = 1.1;
+// How fast the camera glides toward its focus (1/s).
+const FOCUS_GLIDE_RATE = 5;
+// Without live data every region pulses gently up to IDLE_PULSE_MAX_LEVEL. Each region's
+// phase is offset by about the golden angle (radians) from the previous one, so
+// neighbouring regions never pulse in step.
+const IDLE_PULSE_RATE = 1.5;
+const IDLE_PULSE_PHASE_STEP = 2.39;
+const IDLE_PULSE_MAX_LEVEL = 0.5;
 
 /** The outline model's single mesh, with normals computed for its rim shading. */
 function outlineGeometryOf(outlineScene: THREE.Object3D): THREE.BufferGeometry {
-  let outlineGeometry: THREE.BufferGeometry = new THREE.BufferGeometry();
-  outlineScene.traverse((child) => {
-    if (child instanceof THREE.Mesh) outlineGeometry = child.geometry;
-  });
+  const outlineGeometry = meshesOf(outlineScene).at(-1)?.geometry ?? new THREE.BufferGeometry();
   if (!outlineGeometry.getAttribute("normal")) outlineGeometry.computeVertexNormals();
   return outlineGeometry;
 }
@@ -58,15 +65,14 @@ function updateRegionFiring(
   delta: number,
 ): void {
   const firing = uniforms.regionFiring.value;
-  const blend = 1 - Math.exp(-ACTIVITY_SMOOTHING_RATE * delta);
   const flashFade = Math.exp(-FLASH_FADE_RATE * delta);
   regions.forEach((region, index) => {
     const liveRate = activity?.[region.code];
     const targetLevel =
       liveRate !== undefined
         ? regionActivityLevel(liveRate)
-        : Math.max(0, Math.sin(elapsedTime * 1.5 + index * 2.39)) * 0.5;
-    firing[index * 2] += (targetLevel - firing[index * 2]) * blend;
+        : Math.max(0, Math.sin(elapsedTime * IDLE_PULSE_RATE + index * IDLE_PULSE_PHASE_STEP)) * IDLE_PULSE_MAX_LEVEL;
+    firing[index * 2] = damp(firing[index * 2], targetLevel, ACTIVITY_SMOOTHING_RATE, delta);
     const flash = firing[index * 2 + 1];
     const canFlash = isFiring && liveRate !== undefined && flash <= REFRACTORY_FLASH_LEVEL;
     const flashChance = canFlash ? 1 - Math.exp(-MAX_FLASH_ATTEMPTS_PER_SECOND * targetLevel * delta) : 0;
@@ -113,6 +119,15 @@ export function BrainGlow({
     };
   }, [brain]);
   const outlineMaterial = useMemo(() => createOutlineMaterial(), []);
+  // Materials made here (unlike the loaded models' own) are the component's to free.
+  useEffect(
+    () => () => {
+      regionMaterials.surface.dispose();
+      regionMaterials.edge.dispose();
+    },
+    [regionMaterials],
+  );
+  useEffect(() => () => outlineMaterial.dispose(), [outlineMaterial]);
   const brainCenter = useMemo(
     () => new THREE.Box3().setFromObject(outlineScene).getCenter(new THREE.Vector3()),
     [outlineScene],
@@ -121,17 +136,20 @@ export function BrainGlow({
     () => new Map(brain.regions.map((region, index) => [region.code, index])),
     [brain],
   );
-  const surfacesRef = useRef<THREE.Mesh>(null);
+  /** The index of the region with code in brain.regions, -1 for none or an unknown code. */
+  const regionIndexOf = (code: string | null) => (code ? (regionIndexByCode.get(code) ?? -1) : -1);
 
   useEffect(() => onRegionsReady(brain.regions), [brain, onRegionsReady]);
+
+  const surfacesRef = useRef<THREE.Mesh>(null);
 
   useFrame(({ clock }, delta) => {
     const surfaces = surfacesRef.current;
     if (!surfaces) return;
     const uniforms = (surfaces.material as THREE.ShaderMaterial).uniforms as unknown as RegionUniforms;
     updateRegionFiring(uniforms, brain.regions, activity, isFiring, clock.elapsedTime, delta);
-    uniforms.hoveredRegion.value = hoveredCode ? (regionIndexByCode.get(hoveredCode) ?? -1) : -1;
-    uniforms.selectedRegion.value = selectedCode ? (regionIndexByCode.get(selectedCode) ?? -1) : -1;
+    uniforms.hoveredRegion.value = regionIndexOf(hoveredCode);
+    uniforms.selectedRegion.value = regionIndexOf(selectedCode);
   });
 
   /** Reports the nearest region under the pointer. Deliberately doesn't stop propagation:
@@ -147,7 +165,7 @@ export function BrainGlow({
     onSelectRegion(event.intersections[0].object.name);
   }
 
-  const selectedRegion = selectedCode ? brain.regions[regionIndexByCode.get(selectedCode) ?? -1] : undefined;
+  const selectedRegion = brain.regions[regionIndexOf(selectedCode)];
 
   return (
     <group position={[-brainCenter.x, -brainCenter.y, -brainCenter.z]}>
@@ -190,7 +208,7 @@ function CameraFocus({ region }: { region: BrainRegion | undefined }) {
     } else {
       target.set(0, 0, 0);
     }
-    const blend = 1 - Math.exp(-5 * delta);
+    const blend = 1 - Math.exp(-FOCUS_GLIDE_RATE * delta);
     const offset = camera.position.clone().sub(controls.target);
     controls.target.lerp(target, blend);
     const distance = THREE.MathUtils.lerp(offset.length(), region ? FOCUS_DISTANCE : OVERVIEW_DISTANCE, blend);

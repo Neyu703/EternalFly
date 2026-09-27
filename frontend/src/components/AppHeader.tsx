@@ -20,10 +20,10 @@ export function AppHeader({ connectionStatus }: { connectionStatus: ConnectionSt
             <div className="app-brand">
                 <FlyMark className="app-brand-mark" />
                 <h1 className="app-brand-name">EternalFly</h1>
-                <span className="app-brand-tagline">A simulated fruit fly reads – with its real brain</span>
+                <span className="app-brand-tagline truncate">A simulated fruit fly reads – with its real brain</span>
             </div>
             <span className={`status-pill status-pill--${connectionStatus}`} role="status">
-                <span className="status-pill-dot" aria-hidden="true" />
+                <span className="swatch status-pill-dot" aria-hidden="true" />
                 {STATUS_LABELS[connectionStatus]}
             </span>
             <LoadBookButton />

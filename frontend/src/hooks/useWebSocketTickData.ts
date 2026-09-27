@@ -8,11 +8,10 @@ export type AutoplayMode = "off" | "restart" | "shuffle";
  * arrive on (see eternalfly/server.py's stream_ticks control-message handling). */
 export type ControlMessage =
   | { type: "set_paused"; paused: boolean }
-  | { type: "set_speed_multiplier"; value: number }
   | { type: "set_words_per_minute"; value: number }
   | { type: "set_autoplay_mode"; mode: AutoplayMode };
 
-/** Raw JSON shape sent by eternalfly/server.py's tick_result_to_json (snake_case dataclass fields). */
+/** Raw JSON shape of a tick sent by eternalfly/server.py (the TickResult dataclass's snake_case fields). */
 type RawTick = {
   current_word: string | null;
   page_progress: number;
@@ -44,6 +43,9 @@ function toTickData(raw: RawTick): TickData {
   };
 }
 
+// How long to wait before reconnecting after the connection drops.
+const RECONNECT_DELAY_MS = 1000;
+
 /**
  * Connects to the real eternalfly WebSocket server and returns the latest tick (or `null`
  * before the first message has arrived), whether the socket is currently open, and a
@@ -60,8 +62,6 @@ export function useWebSocketTickData(url: string): {
 } {
   const [tick, setTick] = useState<TickData | null>(null);
   const [isConnected, setIsConnected] = useState(false);
-  const urlRef = useRef(url);
-  urlRef.current = url;
   const socketRef = useRef<WebSocket | null>(null);
   const lastControlMessageByTypeRef = useRef(new Map<ControlMessage["type"], ControlMessage>());
 
@@ -71,7 +71,7 @@ export function useWebSocketTickData(url: string): {
     let stopped = false;
 
     const connect = () => {
-      const currentSocket = new WebSocket(urlRef.current);
+      const currentSocket = new WebSocket(url);
       socket = currentSocket;
       socketRef.current = currentSocket;
       currentSocket.onopen = () => {
@@ -88,7 +88,7 @@ export function useWebSocketTickData(url: string): {
         // A superseded socket (e.g. StrictMode's discarded first mount) can close after
         // its replacement already opened; only the current socket owns the status.
         if (socketRef.current === currentSocket) setIsConnected(false);
-        if (!stopped) reconnectTimeoutId = setTimeout(connect, 1000);
+        if (!stopped) reconnectTimeoutId = setTimeout(connect, RECONNECT_DELAY_MS);
       };
     };
     connect();
@@ -98,7 +98,7 @@ export function useWebSocketTickData(url: string): {
       if (reconnectTimeoutId) clearTimeout(reconnectTimeoutId);
       socket?.close();
     };
-  }, []);
+  }, [url]);
 
   const sendControlMessage = useCallback((message: ControlMessage) => {
     lastControlMessageByTypeRef.current.set(message.type, message);

@@ -1,6 +1,5 @@
 import type { TickData } from "../types";
-import type { ControlMessage } from "../hooks/useWebSocketTickData";
-import { PlaybackControls } from "./PlaybackControls";
+import { PlaybackControls, type PlaybackControlsProps } from "./PlaybackControls";
 import { EmotionPanel } from "./EmotionPanel";
 import { LiveLogPanel } from "./LiveLogPanel";
 import "./HudPanel.css";
@@ -13,12 +12,7 @@ export function HudPanel({
   isPaused,
   onTogglePaused,
   sendControlMessage,
-}: {
-  tick: TickData;
-  isPaused: boolean;
-  onTogglePaused: () => void;
-  sendControlMessage: (message: ControlMessage) => void;
-}) {
+}: PlaybackControlsProps & { tick: TickData }) {
   return (
     <div className="hud-panel">
       <PlaybackControls isPaused={isPaused} onTogglePaused={onTogglePaused} sendControlMessage={sendControlMessage} />

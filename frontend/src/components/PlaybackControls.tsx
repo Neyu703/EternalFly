@@ -8,31 +8,33 @@ const WPM_PRESETS = [60, 150, 300, 600, 1200, 3000, 10000] as const;
 const CUSTOM_WPM_OPTION = "custom";
 const DEFAULT_WORDS_PER_MINUTE = 150;
 const DEFAULT_AUTOPLAY_MODE: AutoplayMode = "restart";
+// What each end-of-book mode is called, in the order the selector lists them.
+const AUTOPLAY_MODE_LABELS: Record<AutoplayMode, string> = { restart: "Start over", shuffle: "Random book", off: "Stop" };
+
+/** What PlaybackControls needs from the app: the lifted pause state and the control channel. */
+export type PlaybackControlsProps = {
+  isPaused: boolean;
+  onTogglePaused: () => void;
+  sendControlMessage: (message: ControlMessage) => void;
+};
 
 /** HUD card with the play/pause toggle, a reading-speed selector, and what the fly does
  * once it finishes a book (read it again from the start, shuffle in a random Calibre
  * book, or stop). Sends every change straight to the backend over the shared WebSocket
  * control channel. isPaused/onTogglePaused are lifted to the app root so other components
  * (e.g. the brain stage's sparklines) can also react to the paused state. */
-export function PlaybackControls({
-  isPaused,
-  onTogglePaused,
-  sendControlMessage,
-}: {
-  isPaused: boolean;
-  onTogglePaused: () => void;
-  sendControlMessage: (message: ControlMessage) => void;
-}) {
+export function PlaybackControls({ isPaused, onTogglePaused, sendControlMessage }: PlaybackControlsProps) {
   const [wordsPerMinute, setWordsPerMinute] = useState(DEFAULT_WORDS_PER_MINUTE);
   const [isCustomWpm, setIsCustomWpm] = useState(false);
   const [autoplayMode, setAutoplayMode] = useState<AutoplayMode>(DEFAULT_AUTOPLAY_MODE);
 
   useEffect(() => {
+    // On mount (sendControlMessage is stable): tells a freshly opened connection the
+    // defaults shown here, so the backend reads at the pace the selector says. Later
+    // changes are sent by the change handlers below.
+    sendControlMessage({ type: "set_words_per_minute", value: DEFAULT_WORDS_PER_MINUTE });
     sendControlMessage({ type: "set_autoplay_mode", mode: DEFAULT_AUTOPLAY_MODE });
-    // Only on mount: establishes the default end-of-book behavior for a freshly opened
-    // connection. Later changes are sent directly by handleAutoplayModeChange below.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [sendControlMessage]);
 
   function sendWordsPerMinute(nextWordsPerMinute: number) {
     setWordsPerMinute(nextWordsPerMinute);
@@ -104,9 +106,11 @@ export function PlaybackControls({
       <label className="playback-field">
         <span className="playback-field-label">At the end</span>
         <select className="select" value={autoplayMode} onChange={handleAutoplayModeChange}>
-          <option value="restart">Start over</option>
-          <option value="shuffle">Random book</option>
-          <option value="off">Stop</option>
+          {Object.entries(AUTOPLAY_MODE_LABELS).map(([mode, label]) => (
+            <option key={mode} value={mode}>
+              {label}
+            </option>
+          ))}
         </select>
       </label>
     </section>

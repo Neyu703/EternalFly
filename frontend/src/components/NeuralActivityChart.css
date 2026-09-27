@@ -26,10 +26,3 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-
-.metric-tile-unit {
-  margin-left: 2px;
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-  color: var(--text-muted);
-}

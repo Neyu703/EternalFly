@@ -5,17 +5,14 @@ import { PageText } from "./reading/PageText";
 import { FlippingPage } from "./reading/FlippingPage";
 import type { PageSurface } from "./reading/pageSurface";
 import type { ReadingChoreography } from "./reading/ReadingChoreography";
+import { meshesOf } from "../utils/scene";
 
 export const BOOK_MODEL_URL = "/models/open-book.glb";
 const PAGE_MATERIAL_NAME = "Beige";
 
 /** The book model's page material (its pages and cover are separate meshes). */
 function findPageMaterial(bookScene: THREE.Object3D): THREE.MeshStandardMaterial {
-  const meshes: THREE.Mesh[] = [];
-  bookScene.traverse((child) => {
-    if (child instanceof THREE.Mesh) meshes.push(child);
-  });
-  const pageMesh = meshes.find((mesh) => (mesh.material as THREE.Material).name === PAGE_MATERIAL_NAME);
+  const pageMesh = meshesOf(bookScene).find((mesh) => (mesh.material as THREE.Material).name === PAGE_MATERIAL_NAME);
   return (pageMesh?.material as THREE.MeshStandardMaterial | undefined) ?? new THREE.MeshStandardMaterial({ color: "#d9cfb8" });
 }
 

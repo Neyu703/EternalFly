@@ -1,48 +1,22 @@
 import { useEffect, useState } from "react";
-import { listBooksInFolder, loadBookByPath, type FolderBook } from "../hooks/useLoadBook";
-import "./BookList.css";
+import { BOOK_FILE_EXTENSIONS, listBooksInFolder, type FolderBook } from "../hooks/useLoadBook";
+import { BookPickList } from "./BookPickList";
 
-/** Shown after the user picks a folder via LoadBookButton: lists the .epub/.txt files
- * directly inside it and lets them load one with one click. */
+const EMPTY_FOLDER_TEXT = `No ${BOOK_FILE_EXTENSIONS.map((extension) => `.${extension}`).join(" or ")} files in this folder.`;
+
+/** Shown after the user picks a folder via LoadBookButton: lists the book files directly
+ * inside it and lets them load one with one click. Give it a key per folder, so picking
+ * another folder starts afresh instead of keeping the last folder's list or error. */
 export function FolderBookList({ folderPath }: { folderPath: string }) {
   const [books, setBooks] = useState<FolderBook[]>([]);
   const [errorMessage, setErrorMessage] = useState("");
-  const [loadingPath, setLoadingPath] = useState<string | null>(null);
 
   useEffect(() => {
-    listBooksInFolder(folderPath).then((result) => {
-      if (result.ok) {
-        setBooks(result.books);
-      } else {
-        setErrorMessage(result.error);
-      }
-    });
+    listBooksInFolder(folderPath).then((result) => (result.ok ? setBooks(result.books) : setErrorMessage(result.error)));
   }, [folderPath]);
 
-  async function handlePick(filePath: string) {
-    setLoadingPath(filePath);
-    const result = await loadBookByPath(filePath);
-    setLoadingPath(null);
-    if (!result.ok) setErrorMessage(result.error);
-  }
-
   if (errorMessage) return <p className="error-text">{errorMessage}</p>;
-  if (books.length === 0) return <p className="book-list-empty">No .epub or .txt files in this folder.</p>;
+  if (books.length === 0) return <p className="empty-text">{EMPTY_FOLDER_TEXT}</p>;
 
-  return (
-    <ul className="book-list">
-      {books.map((book) => (
-        <li key={book.filePath}>
-          <button
-            className="book-list-item"
-            disabled={loadingPath === book.filePath}
-            onClick={() => handlePick(book.filePath)}
-          >
-            <span className="book-list-title">{book.fileName}</span>
-            {loadingPath === book.filePath && <span className="book-list-meta">Loading…</span>}
-          </button>
-        </li>
-      ))}
-    </ul>
-  );
+  return <BookPickList books={books.map((book) => ({ filePath: book.filePath, title: book.fileName }))} />;
 }
