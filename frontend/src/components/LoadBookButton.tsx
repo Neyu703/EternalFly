@@ -47,7 +47,7 @@ export function LoadBookButton() {
    * running inside the desktop app (a plain browser has no native dialogs). */
   async function pickPath(options: OpenDialogOptions): Promise<string | null> {
     if (!isTauri()) {
-      showError("Die Dateiauswahl gibt es nur in der Desktop-App.");
+      showError("File picking is only available in the desktop app.");
       return null;
     }
     const selectedPath = await open(options);
@@ -55,7 +55,7 @@ export function LoadBookButton() {
   }
 
   async function handlePickFile() {
-    const selectedPath = await pickPath({ multiple: false, filters: [{ name: "Buch", extensions: ["txt", "epub"] }] });
+    const selectedPath = await pickPath({ multiple: false, filters: [{ name: "Book", extensions: ["txt", "epub"] }] });
     if (!selectedPath) return;
     setSelectedFolderPath(null);
     setStatus("loading");
@@ -82,25 +82,25 @@ export function LoadBookButton() {
     <div className="load-book">
       <button className="button" onClick={handlePickFile} disabled={isLoading}>
         {isLoading ? <span className="spinner spinner--small" aria-hidden="true" /> : <FileIcon />}
-        {isLoading ? "Lädt…" : "Datei laden"}
+        {isLoading ? "Loading…" : "Load file"}
       </button>
       <button className="button" onClick={handlePickFolder} disabled={isLoading}>
         <FolderIcon />
-        Ordner laden
+        Load folder
       </button>
 
       {isPopoverOpen && (
-        <div className="load-book-popover" role="dialog" aria-label={selectedFolderPath ? "Bücher im Ordner" : "Fehler"}>
+        <div className="load-book-popover" role="dialog" aria-label={selectedFolderPath ? "Books in folder" : "Error"}>
           <div className="load-book-popover-header">
             <div className="load-book-popover-heading">
-              <span className="overline">{selectedFolderPath ? "Ordner" : "Buch konnte nicht geladen werden"}</span>
+              <span className="overline">{selectedFolderPath ? "Folder" : "Couldn't load the book"}</span>
               {selectedFolderPath && (
                 <span className="load-book-popover-title" title={selectedFolderPath}>
                   {lastPathSegment(selectedFolderPath)}
                 </span>
               )}
             </div>
-            <button className="icon-button" onClick={closePopover} aria-label="Schließen">
+            <button className="icon-button" onClick={closePopover} aria-label="Close">
               <CloseIcon />
             </button>
           </div>

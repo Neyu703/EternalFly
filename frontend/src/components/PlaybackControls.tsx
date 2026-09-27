@@ -63,16 +63,16 @@ export function PlaybackControls({
   return (
     <section className="card playback" aria-labelledby="playback-title">
       <h2 id="playback-title" className="overline">
-        Wiedergabe
+        Playback
       </h2>
 
       <button className="button button--primary playback-toggle" onClick={onTogglePaused}>
         {isPaused ? <PlayIcon /> : <PauseIcon />}
-        {isPaused ? "Weiterlesen" : "Pausieren"}
+        {isPaused ? "Resume" : "Pause"}
       </button>
 
       <label className="playback-field">
-        <span className="playback-field-label">Tempo</span>
+        <span className="playback-field-label">Speed</span>
         <select
           className="select"
           value={isCustomWpm ? CUSTOM_WPM_OPTION : wordsPerMinute}
@@ -80,16 +80,16 @@ export function PlaybackControls({
         >
           {WPM_PRESETS.map((preset) => (
             <option key={preset} value={preset}>
-              {formatInteger(preset)} Wörter/Min
+              {formatInteger(preset)} words/min
             </option>
           ))}
-          <option value={CUSTOM_WPM_OPTION}>Benutzerdefiniert…</option>
+          <option value={CUSTOM_WPM_OPTION}>Custom…</option>
         </select>
       </label>
 
       {isCustomWpm && (
         <label className="playback-field">
-          <span className="playback-field-label">Wörter/Min</span>
+          <span className="playback-field-label">Words/min</span>
           <input
             type="number"
             className="input"
@@ -102,11 +102,11 @@ export function PlaybackControls({
       )}
 
       <label className="playback-field">
-        <span className="playback-field-label">Am Ende</span>
+        <span className="playback-field-label">At the end</span>
         <select className="select" value={autoplayMode} onChange={handleAutoplayModeChange}>
-          <option value="restart">Von vorne</option>
-          <option value="shuffle">Zufälliges Buch</option>
-          <option value="off">Anhalten</option>
+          <option value="restart">Start over</option>
+          <option value="shuffle">Random book</option>
+          <option value="off">Stop</option>
         </select>
       </label>
     </section>

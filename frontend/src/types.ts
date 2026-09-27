@@ -26,14 +26,14 @@ export const EMOTION_NAMES = [
 
 export type EmotionName = (typeof EMOTION_NAMES)[number];
 
-/** German display label per Plutchik emotion; the backend's keys stay English. */
+/** Display label per Plutchik emotion (the backend sends the lowercase keys). */
 export const EMOTION_LABELS: Record<EmotionName, string> = {
-  joy: "Freude",
-  trust: "Vertrauen",
-  fear: "Angst",
-  surprise: "Überraschung",
-  sadness: "Traurigkeit",
-  disgust: "Ekel",
-  anger: "Wut",
-  anticipation: "Erwartung",
+  joy: "Joy",
+  trust: "Trust",
+  fear: "Fear",
+  surprise: "Surprise",
+  sadness: "Sadness",
+  disgust: "Disgust",
+  anger: "Anger",
+  anticipation: "Anticipation",
 };

@@ -13,7 +13,7 @@ export async function listBooksInFolder(folderPath: string): Promise<ListBooksIn
     const response = await fetch(`${BACKEND_HTTP_URL}/books-in-folder?path=${encodeURIComponent(folderPath)}`);
     if (!response.ok) {
       const body = await response.json().catch(() => null);
-      return { ok: false, error: body?.detail ?? `Fehler ${response.status}` };
+      return { ok: false, error: body?.detail ?? `Error ${response.status}` };
     }
     const body = await response.json();
     const books: FolderBook[] = body.books.map((book: { file_name: string; file_path: string }) => ({
@@ -22,7 +22,7 @@ export async function listBooksInFolder(folderPath: string): Promise<ListBooksIn
     }));
     return { ok: true, books };
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : "Unbekannter Fehler" };
+    return { ok: false, error: error instanceof Error ? error.message : "Unknown error" };
   }
 }
 
@@ -37,11 +37,11 @@ export async function loadBookByPath(path: string): Promise<LoadBookResult> {
     });
     if (!response.ok) {
       const body = await response.json().catch(() => null);
-      return { ok: false, error: body?.detail ?? `Fehler ${response.status}` };
+      return { ok: false, error: body?.detail ?? `Error ${response.status}` };
     }
     const body = await response.json();
     return { ok: true, totalWords: body.total_words };
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : "Unbekannter Fehler" };
+    return { ok: false, error: error instanceof Error ? error.message : "Unknown error" };
   }
 }

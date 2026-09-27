@@ -136,7 +136,7 @@ function RegionTooltip({ code, activity, style }: { code: string; activity?: num
       <span className="region-tooltip-meta">
         {region.areaName} · {region.side}
       </span>
-      {activity !== undefined && <span className="region-tooltip-meta">Feuerrate {formatPercent(activity)}</span>}
+      {activity !== undefined && <span className="region-tooltip-meta">Firing rate {formatPercent(activity)}</span>}
     </div>
   );
 }
@@ -157,7 +157,7 @@ function RegionCard({
   const region = describeRegion(code);
   const barFraction = activity !== undefined ? normalizedRegionActivity(activity) : 0;
   return (
-    <aside className="region-card" aria-label={`Hirnregion ${region.name}`}>
+    <aside className="region-card" aria-label={`Brain region ${region.name}`}>
       <div className="region-card-header">
         <div className="region-card-heading">
           <span className="overline">
@@ -166,13 +166,13 @@ function RegionCard({
           <span className="region-card-name">{region.name}</span>
           <span className="region-card-side">{region.side}</span>
         </div>
-        <button className="icon-button" onClick={onClose} aria-label="Auswahl aufheben">
+        <button className="icon-button" onClick={onClose} aria-label="Clear selection">
           <CloseIcon />
         </button>
       </div>
       {region.role && <p className="region-card-role">{region.role}</p>}
       <div className="region-card-activity">
-        <span className="region-card-activity-label">Feuerrate</span>
+        <span className="region-card-activity-label">Firing rate</span>
         <span className="region-card-activity-track">
           <span className="region-card-activity-fill" style={{ width: `${barFraction * 100}%`, background: color }} />
         </span>

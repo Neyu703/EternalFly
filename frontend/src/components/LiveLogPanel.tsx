@@ -49,29 +49,29 @@ export function LiveLogPanel({ tick }: { tick: TickData }) {
     <section className="card live-log" aria-labelledby="live-log-title">
       <div className="card-header">
         <h2 id="live-log-title" className="overline">
-          Live-Log
+          Live log
         </h2>
-        <span className="card-meta">Reaktion pro Wort</span>
+        <span className="card-meta">Reaction per word</span>
       </div>
       <div className="live-log-scroll" ref={scrollContainerRef} onScroll={handleScroll}>
         {logLines.length === 0 ? (
-          <p className="live-log-empty">Wartet auf Wörter…</p>
+          <p className="live-log-empty">Waiting for words…</p>
         ) : (
           <table className="live-log-table">
             <thead>
               <tr>
-                <th scope="col">Wort</th>
-                <th scope="col" title="Dopamin-Bewertung (0–10)">
-                  Dopamin
+                <th scope="col">Word</th>
+                <th scope="col" title="Dopamine rating (0–10)">
+                  Dopamine
                 </th>
-                <th scope="col" title="Annäherung (Approach-Pool)">
-                  Annäh.
+                <th scope="col" title="Approach pool activity">
+                  Appr.
                 </th>
-                <th scope="col" title="Vermeidung (Avoidance-Pool)">
-                  Vermeid.
+                <th scope="col" title="Avoidance pool activity">
+                  Avoid.
                 </th>
-                <th scope="col" title="Erregung (Arousal-Pool)">
-                  Erreg.
+                <th scope="col" title="Arousal pool activity">
+                  Arous.
                 </th>
               </tr>
             </thead>

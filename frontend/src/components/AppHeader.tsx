@@ -6,10 +6,10 @@ import "./AppHeader.css";
 export type ConnectionStatus = "connecting" | "live" | "paused" | "disconnected";
 
 const STATUS_LABELS: Record<ConnectionStatus, string> = {
-    connecting: "Verbinde…",
+    connecting: "Connecting…",
     live: "Live",
-    paused: "Pausiert",
-    disconnected: "Getrennt – verbinde neu…",
+    paused: "Paused",
+    disconnected: "Disconnected – reconnecting…",
 };
 
 /** Top bar: brand, the simulation's connection status (dot + label, never color alone),
@@ -20,7 +20,7 @@ export function AppHeader({ connectionStatus }: { connectionStatus: ConnectionSt
             <div className="app-brand">
                 <FlyMark className="app-brand-mark" />
                 <h1 className="app-brand-name">EternalFly</h1>
-                <span className="app-brand-tagline">Eine simulierte Fruchtfliege liest – mit ihrem echten Gehirn</span>
+                <span className="app-brand-tagline">A simulated fruit fly reads – with its real brain</span>
             </div>
             <span className={`status-pill status-pill--${connectionStatus}`} role="status">
                 <span className="status-pill-dot" aria-hidden="true" />

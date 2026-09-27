@@ -40,8 +40,8 @@ function App() {
       <AppHeader connectionStatus={connectionStatusOf(isConnected, isPaused, tick !== null)} />
 
       <main className="stage">
-        <section className="stage-panel stage-panel--reader" aria-label="Leser">
-          <StageCaption title="Leser" subtitle="Drosophila melanogaster" hint="Ziehen zum Drehen · Scrollen zum Zoomen" />
+        <section className="stage-panel stage-panel--reader" aria-label="Reader">
+          <StageCaption title="Reader" subtitle="Drosophila melanogaster" hint="Drag to rotate · Scroll to zoom" />
           <div className="stage-canvas">
             <FlyBookScene
               wordsRead={tick?.wordsRead ?? 0}
@@ -53,20 +53,20 @@ function App() {
             <aside className="bored-notice" role="status">
               <p className="bored-notice-title">
                 <span className="swatch" style={{ background: "var(--status-warning)" }} />
-                Boah, langweilig — anderes Buch?
+                Ugh, boring — another book?
               </p>
-              <p className="bored-notice-text">Die Fliege verliert das Interesse. Lade oben rechts ein neues Buch.</p>
+              <p className="bored-notice-text">The fly is losing interest. Load a new book at the top right.</p>
               <CalibreBookList />
             </aside>
           )}
           <div className="stage-footer">{tick && <ReadingStatus tick={tick} />}</div>
         </section>
 
-        <section className="stage-panel stage-panel--brain" aria-label="Gehirn">
+        <section className="stage-panel stage-panel--brain" aria-label="Brain">
           <StageCaption
-            title="Gehirn"
-            subtitle="Echtes FlyWire-Konnektom · ≈ 139.000 Neuronen"
-            hint="Region anklicken für Details · Ziehen zum Drehen"
+            title="Brain"
+            subtitle="Real FlyWire connectome · ≈ 139,000 neurons"
+            hint="Click a region for details · Drag to rotate"
           />
           <div className="stage-canvas">
             <BrainScene activity={tick?.neuropilActivity} />
@@ -75,15 +75,15 @@ function App() {
         </section>
       </main>
 
-      <section className="hud" aria-label="Steuerung und Live-Daten">
+      <section className="hud" aria-label="Controls and live data">
         {tick ? (
           <HudPanel tick={tick} isPaused={isPaused} onTogglePaused={togglePaused} sendControlMessage={sendControlMessage} />
         ) : (
           <div className="hud-connecting" role="status">
             <span className="spinner" aria-hidden="true" />
             <div>
-              <p className="hud-connecting-title">Verbinde mit der Simulation…</p>
-              <p className="hud-connecting-hint">Das Backend muss unter 127.0.0.1:8000 laufen (make backend).</p>
+              <p className="hud-connecting-title">Connecting to the simulation…</p>
+              <p className="hud-connecting-hint">The backend has to be running at 127.0.0.1:8000 (make backend).</p>
             </div>
           </div>
         )}

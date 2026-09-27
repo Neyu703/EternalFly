@@ -17,7 +17,7 @@ export function CalibreBookList() {
     fetch(`${BACKEND_HTTP_URL}/calibre-books`)
       .then((response) => response.json())
       .then((body) => setBooks(body.books ?? []))
-      .catch(() => setErrorMessage("Calibre-Bibliothek konnte nicht geladen werden."));
+      .catch(() => setErrorMessage("Couldn't load the Calibre library."));
   }, []);
 
   async function handlePick(filePath: string) {
@@ -32,7 +32,7 @@ export function CalibreBookList() {
 
   return (
     <>
-      <span className="overline">Aus deiner Calibre-Bibliothek</span>
+      <span className="overline">From your Calibre library</span>
       <ul className="book-list">
         {books.map((book) => (
           <li key={book.book_id}>
@@ -42,7 +42,7 @@ export function CalibreBookList() {
               onClick={() => handlePick(book.file_path)}
             >
               <span className="book-list-title">{book.title}</span>
-              <span className="book-list-meta">{loadingPath === book.file_path ? "Lädt…" : book.author}</span>
+              <span className="book-list-meta">{loadingPath === book.file_path ? "Loading…" : book.author}</span>
             </button>
           </li>
         ))}

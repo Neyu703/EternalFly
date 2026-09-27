@@ -79,7 +79,7 @@ export function Sparkline({
           viewBox="0 0 100 100"
           preserveAspectRatio="none"
           role="img"
-          aria-label={`${label ?? "Verlauf"}: aktuell ${latestValue === undefined ? "–" : formatValue(latestValue)}, Skala ${domainText}`}
+          aria-label={`${label ?? "History"}: currently ${latestValue === undefined ? "–" : formatValue(latestValue)}, scale ${domainText}`}
           onPointerMove={handlePointerMove}
           onPointerLeave={() => setHoveredIndex(null)}
         >

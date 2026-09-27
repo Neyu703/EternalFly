@@ -13,12 +13,12 @@ export function EmotionPanel({ emotions }: { emotions: Record<string, number> })
         <section className="card emotion-panel" aria-labelledby="emotion-panel-title">
             <div className="card-header">
                 <h2 id="emotion-panel-title" className="overline">
-                    Emotionen
+                    Emotions
                 </h2>
                 {dominantEmotion && (
                     <span className="card-meta emotion-panel-dominant">
                         <span className="swatch" style={{ background: EMOTION_COLORS[dominantEmotion] }} />
-                        {EMOTION_LABELS[dominantEmotion]} überwiegt
+                        {EMOTION_LABELS[dominantEmotion]} dominates
                     </span>
                 )}
             </div>

@@ -27,7 +27,7 @@ export function FolderBookList({ folderPath }: { folderPath: string }) {
   }
 
   if (errorMessage) return <p className="error-text">{errorMessage}</p>;
-  if (books.length === 0) return <p className="book-list-empty">Keine .epub- oder .txt-Dateien in diesem Ordner.</p>;
+  if (books.length === 0) return <p className="book-list-empty">No .epub or .txt files in this folder.</p>;
 
   return (
     <ul className="book-list">
@@ -39,7 +39,7 @@ export function FolderBookList({ folderPath }: { folderPath: string }) {
             onClick={() => handlePick(book.filePath)}
           >
             <span className="book-list-title">{book.fileName}</span>
-            {loadingPath === book.filePath && <span className="book-list-meta">Lädt…</span>}
+            {loadingPath === book.filePath && <span className="book-list-meta">Loading…</span>}
           </button>
         </li>
       ))}

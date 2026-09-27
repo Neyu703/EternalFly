@@ -67,7 +67,7 @@ def list_books(
             continue
         format_name, data_name = chosen_format
         file_path = library_path / book_path / f"{data_name}.{format_name.lower()}"
-        author = " & ".join(authors_by_book.get(book_id, [])) or "Unbekannt"
+        author = " & ".join(authors_by_book.get(book_id, [])) or "Unknown"
         calibre_books.append(CalibreBook(book_id=book_id, title=title, author=author, file_path=file_path))
 
     calibre_books.sort(key=lambda book: book.title.lower())

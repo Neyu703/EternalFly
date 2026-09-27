@@ -51,7 +51,7 @@ export function NeuralActivityChart({ tick, isPaused }: { tick: TickData; isPaus
         metric={FIRING_RATE_METRIC}
         value={currentFiringRate}
         history={firingRateHistory}
-        detail={trackedRegionCount > 0 ? `${trackedRegionCount} Regionen` : undefined}
+        detail={trackedRegionCount > 0 ? `${trackedRegionCount} regions` : undefined}
       />
     </div>
   );

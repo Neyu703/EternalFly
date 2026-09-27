@@ -81,7 +81,7 @@ def test_list_books_joins_multiple_authors_with_ampersand(tmp_path):
     assert books[0].author == "Terry Pratchett & Neil Gaiman"
 
 
-def test_list_books_uses_unbekannt_for_book_with_no_author_link(tmp_path):
+def test_list_books_uses_unknown_for_book_with_no_author_link(tmp_path):
     library_path = _create_library(tmp_path)
     _run_sql(
         library_path,
@@ -91,7 +91,7 @@ def test_list_books_uses_unbekannt_for_book_with_no_author_link(tmp_path):
 
     books = list_books(library_path)
 
-    assert books[0].author == "Unbekannt"
+    assert books[0].author == "Unknown"
 
 
 def test_list_books_prefers_epub_over_txt_by_default(tmp_path):

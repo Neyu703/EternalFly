@@ -25,7 +25,7 @@ function mean(values: number[]): number {
  * emotions developed across the whole book, shown once when it finishes (see
  * useBookHistory). Progress-bucketed rather than time-bucketed, so it reads the same shape
  * regardless of how long or short the book was. A native modal <dialog>: Escape, the
- * close button, the "Weiter" button and a backdrop click all dismiss it. */
+ * close button, the "Continue" button and a backdrop click all dismiss it. */
 export function BookOverviewPanel({
   history,
   onDismiss,
@@ -71,30 +71,30 @@ export function BookOverviewPanel({
       <div className="modal-content">
         <header className="modal-header">
           <div className="modal-heading">
-            <span className="overline">Buch beendet</span>
+            <span className="overline">Book finished</span>
             <h2 id="book-overview-title" className="modal-title">
-              So hat die Fliege das Buch erlebt
+              How the fly experienced the book
             </h2>
           </div>
-          <button className="icon-button" onClick={onDismiss} aria-label="Schließen">
+          <button className="icon-button" onClick={onDismiss} aria-label="Close">
             <CloseIcon />
           </button>
         </header>
 
         <div className="book-overview-summary">
           <SummaryStat
-            label="Ø Dopamin"
+            label="Avg. dopamine"
             value={DOPAMINE_METRIC.formatValue(mean(ratingHistory))}
             unit={DOPAMINE_METRIC.unit}
             color={DOPAMINE_METRIC.color}
           />
           <SummaryStat
-            label="Höchste Erregung"
+            label="Peak arousal"
             value={AROUSAL_METRIC.formatValue(Math.max(0, ...arousalHistory))}
             color={AROUSAL_METRIC.color}
           />
           <SummaryStat
-            label="Stärkste Emotion"
+            label="Strongest emotion"
             value={dominantEmotion ? EMOTION_LABELS[dominantEmotion] : "—"}
             color={dominantEmotion ? EMOTION_COLORS[dominantEmotion] : undefined}
           />
@@ -102,7 +102,7 @@ export function BookOverviewPanel({
 
         <section className="book-overview-section" aria-labelledby="book-overview-metrics-title">
           <h3 id="book-overview-metrics-title" className="overline">
-            Verlauf über das Buch
+            Across the book
           </h3>
           {metricHistories.map(([metric, metricHistory]) => (
             <Sparkline
@@ -116,14 +116,14 @@ export function BookOverviewPanel({
             />
           ))}
           <div className="book-overview-axis" aria-hidden="true">
-            <span>Anfang</span>
-            <span>Ende</span>
+            <span>Start</span>
+            <span>End</span>
           </div>
         </section>
 
         <section className="book-overview-section" aria-labelledby="book-overview-emotions-title">
           <h3 id="book-overview-emotions-title" className="overline">
-            Emotionen · jeweils 0–100 %
+            Emotions · each 0–100%
           </h3>
           <div className="book-overview-emotions">
             {EMOTION_NAMES.map((emotionName) => (
@@ -142,7 +142,7 @@ export function BookOverviewPanel({
 
         <footer className="modal-footer">
           <button ref={continueButtonRef} className="button button--primary" onClick={onDismiss}>
-            Weiter
+            Continue
           </button>
         </footer>
       </div>
