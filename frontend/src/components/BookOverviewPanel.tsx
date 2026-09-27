@@ -6,6 +6,7 @@ import { EMOTION_DEFINITIONS } from "../emotionDefinitions";
 import { strongestEmotion } from "../utils/emotions";
 import { formatPercent } from "../utils/format";
 import { Sparkline } from "./Sparkline";
+import { Swatch } from "./Swatch";
 import { CloseIcon } from "./icons";
 import "./BookOverviewPanel.css";
 
@@ -161,7 +162,7 @@ function SummaryStat({ label, value, unit, color }: { label: string; value: stri
   return (
     <div className="summary-stat">
       <span className="summary-stat-label">
-        {color && <span className="swatch" style={{ background: color }} />}
+        {color && <Swatch color={color} />}
         {label}
       </span>
       <span className="summary-stat-value truncate">

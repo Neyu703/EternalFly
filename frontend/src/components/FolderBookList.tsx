@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { BOOK_FILE_EXTENSIONS, listBooksInFolder, type FolderBook } from "../hooks/useLoadBook";
+import { BOOK_FILE_EXTENSIONS, listBooksInFolder, type FolderBook } from "../bookApi";
 import { BookPickList } from "./BookPickList";
 
 const EMPTY_FOLDER_TEXT = `No ${BOOK_FILE_EXTENSIONS.map((extension) => `.${extension}`).join(" or ")} files in this folder.`;

@@ -1,4 +1,4 @@
-import { BACKEND_HTTP_URL } from "../backendUrl";
+import { BACKEND_HTTP_URL } from "./backendUrl";
 
 /** The book file types the backend can read, most preferred first. */
 export const BOOK_FILE_EXTENSIONS = ["epub", "txt"];

@@ -11,6 +11,7 @@ const FOLLOW_THRESHOLD_PX = 24;
 
 /** One logged reaction to a single word, kept small enough to render cheaply in a list. */
 type LogLine = {
+  lineNumber: number;
   word: string;
   rating0To10: number;
   regionActivity: Record<string, number>;
@@ -23,13 +24,20 @@ type LogLine = {
 export function LiveLogPanel({ tick }: { tick: TickData }) {
   const [logLines, setLogLines] = useState<LogLine[]>([]);
   const lastLoggedWordsReadRef = useRef<number | null>(null);
+  // Row keys: wordsRead restarts with every book, a running line number never repeats.
+  const nextLineNumberRef = useRef(0);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const isFollowingRef = useRef(true);
 
   useEffect(() => {
     if (!tick.currentWord || tick.wordsRead === lastLoggedWordsReadRef.current) return;
     lastLoggedWordsReadRef.current = tick.wordsRead;
-    const logLine = { word: tick.currentWord, rating0To10: tick.rating0To10, regionActivity: tick.regionActivity };
+    const logLine = {
+      lineNumber: nextLineNumberRef.current++,
+      word: tick.currentWord,
+      rating0To10: tick.rating0To10,
+      regionActivity: tick.regionActivity,
+    };
     setLogLines((previousLines) => appendCapped(previousLines, logLine, MAX_LOG_LINES));
   }, [tick]);
 
@@ -76,8 +84,8 @@ export function LiveLogPanel({ tick }: { tick: TickData }) {
               </tr>
             </thead>
             <tbody>
-              {logLines.map((line, index) => (
-                <tr key={index}>
+              {logLines.map((line) => (
+                <tr key={line.lineNumber}>
                   <td className="live-log-word">{line.word}</td>
                   <td>{formatDecimal(line.rating0To10, 2)}</td>
                   <td>{formatFiringRate(line.regionActivity.approach ?? 0)}</td>

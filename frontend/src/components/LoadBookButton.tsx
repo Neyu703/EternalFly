@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import { open, type OpenDialogOptions } from "@tauri-apps/plugin-dialog";
-import { BOOK_FILE_EXTENSIONS, loadBookByPath } from "../hooks/useLoadBook";
+import { BOOK_FILE_EXTENSIONS, loadBookByPath } from "../bookApi";
 import { useEscapeKey } from "../hooks/useEscapeKey";
 import { FolderBookList } from "./FolderBookList";
 import { CloseIcon, FileIcon, FolderIcon } from "./icons";

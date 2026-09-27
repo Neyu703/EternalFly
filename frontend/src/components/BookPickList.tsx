@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { loadBookByPath } from "../hooks/useLoadBook";
+import { loadBookByPath } from "../bookApi";
 import "./BookList.css";
 
 /** One book to offer: the file to load, its title and an optional second line. */

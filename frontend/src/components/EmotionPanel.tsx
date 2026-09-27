@@ -3,6 +3,7 @@ import { EMOTION_DEFINITIONS } from "../emotionDefinitions";
 import { clamp01 } from "../utils/math";
 import { strongestEmotion } from "../utils/emotions";
 import { formatPercent } from "../utils/format";
+import { Swatch } from "./Swatch";
 import "./EmotionPanel.css";
 
 /** HUD card with the fly's current emotional states (reward, aversion, arousal: the ones
@@ -18,7 +19,7 @@ export function EmotionPanel({ emotions }: { emotions: Record<string, number> })
                 </h2>
                 {dominantEmotion && (
                     <span className="card-meta emotion-panel-dominant">
-                        <span className="swatch" style={{ background: EMOTION_DEFINITIONS[dominantEmotion].color }} />
+                        <Swatch color={EMOTION_DEFINITIONS[dominantEmotion].color} />
                         {EMOTION_DEFINITIONS[dominantEmotion].label} dominates
                     </span>
                 )}

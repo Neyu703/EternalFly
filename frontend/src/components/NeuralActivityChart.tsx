@@ -4,6 +4,7 @@ import { AROUSAL_METRIC, DOPAMINE_METRIC, FIRING_RATE_METRIC, type MetricDefinit
 import { appendCapped } from "../utils/array";
 import { arousalOf } from "../utils/emotions";
 import { Sparkline } from "./Sparkline";
+import { Swatch } from "./Swatch";
 import "./NeuralActivityChart.css";
 
 const HISTORY_LENGTH = 80;
@@ -52,7 +53,7 @@ function MetricTile({ metric, value, history }: { metric: MetricDefinition; valu
   return (
     <div className="metric-tile" title={metric.description}>
       <div className="metric-tile-header">
-        <span className="swatch" style={{ background: metric.color }} />
+        <Swatch color={metric.color} />
         <span className="overline">{metric.label}</span>
       </div>
       <div className="metric-tile-value">

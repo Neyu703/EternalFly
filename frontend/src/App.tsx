@@ -6,6 +6,7 @@ import { ReadingStatus } from "./components/ReadingStatus";
 import { NeuralActivityChart } from "./components/NeuralActivityChart";
 import { CalibreBookList } from "./components/CalibreBookList";
 import { HudPanel } from "./components/HudPanel";
+import { Swatch } from "./components/Swatch";
 import { BookOverviewPanel } from "./components/BookOverviewPanel";
 import { useWebSocketTickData } from "./hooks/useWebSocketTickData";
 import { useBookHistory } from "./hooks/useBookHistory";
@@ -54,7 +55,7 @@ function App() {
           {tick?.wantsNewBook && (
             <aside className="overlay-panel bored-notice" role="status">
               <p className="bored-notice-title">
-                <span className="swatch" style={{ background: "var(--status-warning)" }} />
+                <Swatch color="var(--status-warning)" />
                 Ugh, boring — another book?
               </p>
               <p className="bored-notice-text">The fly is losing interest. Load a new book at the top right.</p>

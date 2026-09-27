@@ -80,6 +80,13 @@ function updateRegionFiring(
   });
 }
 
+/** Marks the hovered and selected region (index into the regions, -1 for none) in the
+ * shared uniform. */
+function highlightRegions(uniforms: RegionUniforms, hoveredIndex: number, selectedIndex: number): void {
+  uniforms.hoveredRegion.value = hoveredIndex;
+  uniforms.selectedRegion.value = selectedIndex;
+}
+
 /**
  * The real FlyWire FAFB brain (template outline plus all 78 anatomically colored neuropil
  * regions), drawn in three draw calls: a rim-lit outline shell, the merged region surfaces
@@ -114,6 +121,7 @@ export function BrainGlow({
   const regionMaterials = useMemo(() => {
     const uniforms = createRegionUniforms(brain.regions.length);
     return {
+      uniforms,
       surface: createRegionSurfaceMaterial(uniforms, brain.regions.length),
       edge: createRegionEdgeMaterial(uniforms, brain.regions.length),
     };
@@ -141,15 +149,9 @@ export function BrainGlow({
 
   useEffect(() => onRegionsReady(brain.regions), [brain, onRegionsReady]);
 
-  const surfacesRef = useRef<THREE.Mesh>(null);
-
   useFrame(({ clock }, delta) => {
-    const surfaces = surfacesRef.current;
-    if (!surfaces) return;
-    const uniforms = (surfaces.material as THREE.ShaderMaterial).uniforms as unknown as RegionUniforms;
-    updateRegionFiring(uniforms, brain.regions, activity, isFiring, clock.elapsedTime, delta);
-    uniforms.hoveredRegion.value = regionIndexOf(hoveredCode);
-    uniforms.selectedRegion.value = regionIndexOf(selectedCode);
+    updateRegionFiring(regionMaterials.uniforms, brain.regions, activity, isFiring, clock.elapsedTime, delta);
+    highlightRegions(regionMaterials.uniforms, regionIndexOf(hoveredCode), regionIndexOf(selectedCode));
   });
 
   /** Reports the nearest region under the pointer. Deliberately doesn't stop propagation:
@@ -170,7 +172,7 @@ export function BrainGlow({
   return (
     <group position={[-brainCenter.x, -brainCenter.y, -brainCenter.z]}>
       <mesh geometry={outlineGeometry} material={outlineMaterial} renderOrder={0} />
-      <mesh ref={surfacesRef} geometry={brain.surfaces} material={regionMaterials.surface} renderOrder={1} />
+      <mesh geometry={brain.surfaces} material={regionMaterials.surface} renderOrder={1} />
       <lineSegments geometry={brain.edges} material={regionMaterials.edge} renderOrder={2} />
       <primitive
         object={regionsScene}
@@ -194,6 +196,7 @@ function CameraFocus({ region }: { region: BrainRegion | undefined }) {
   } | null;
   const remainingSecondsRef = useRef(0);
   const targetRef = useRef(new THREE.Vector3());
+  const offsetRef = useRef(new THREE.Vector3());
 
   useEffect(() => {
     remainingSecondsRef.current = FOCUS_SECONDS;
@@ -209,7 +212,7 @@ function CameraFocus({ region }: { region: BrainRegion | undefined }) {
       target.set(0, 0, 0);
     }
     const blend = 1 - Math.exp(-FOCUS_GLIDE_RATE * delta);
-    const offset = camera.position.clone().sub(controls.target);
+    const offset = offsetRef.current.copy(camera.position).sub(controls.target);
     controls.target.lerp(target, blend);
     const distance = THREE.MathUtils.lerp(offset.length(), region ? FOCUS_DISTANCE : OVERVIEW_DISTANCE, blend);
     camera.position.copy(controls.target).add(offset.setLength(distance));
