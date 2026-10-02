@@ -68,9 +68,12 @@ export function PlaybackControls({ isPaused, onTogglePaused, sendControlMessage 
         Playback
       </h2>
 
-      <button className="button button--primary playback-toggle" onClick={onTogglePaused}>
+      <button className="button button--primary playback-toggle" onClick={onTogglePaused} aria-keyshortcuts="Space">
         {isPaused ? <PlayIcon /> : <PauseIcon />}
         {isPaused ? "Resume" : "Pause"}
+        <kbd className="playback-toggle-shortcut" aria-hidden="true">
+          Space
+        </kbd>
       </button>
 
       <label className="playback-field">

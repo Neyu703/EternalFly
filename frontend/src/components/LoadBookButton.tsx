@@ -2,7 +2,7 @@ import { useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import { open, type OpenDialogOptions } from "@tauri-apps/plugin-dialog";
 import { BOOK_FILE_EXTENSIONS, loadBookByPath } from "../bookApi";
-import { useEscapeKey } from "../hooks/useEscapeKey";
+import { useKeyDown } from "../hooks/useKeyDown";
 import { FolderBookList } from "./FolderBookList";
 import { CloseIcon, FileIcon, FolderIcon } from "./icons";
 import "./LoadBookButton.css";
@@ -32,7 +32,7 @@ export function LoadBookButton() {
   const isPopoverOpen = pickerState.kind === "error" || pickerState.kind === "folder";
   const closePopover = () => setPickerState(CLOSED);
 
-  useEscapeKey(isPopoverOpen, closePopover);
+  useKeyDown("Escape", isPopoverOpen, closePopover);
 
   /** Opens a native picker and returns the chosen path, or null if cancelled or not
    * running inside the desktop app (a plain browser has no native dialogs). */

@@ -8,18 +8,22 @@
   height: 100vh;
 }
 
+/* Both panels share the stage's two rows (via subgrid), so their footers always start at
+   the same height even though the reader's content is shorter than the brain's. */
 .stage {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 1px;
+  grid-template-rows: minmax(0, 1fr) auto;
+  column-gap: 1px;
   min-height: 0;
   background: var(--border-subtle);
 }
 
 .stage-panel {
   position: relative;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-row: span 2;
+  grid-template-rows: subgrid;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -40,7 +44,6 @@
 
 .stage-canvas {
   position: relative;
-  flex: 1;
   min-height: 0;
 }
 
@@ -77,21 +80,28 @@
 }
 
 .stage-footer {
-  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  /* Reserves the brain footer's full height (its three metric tiles) before the first
+     tick arrives, so the stages above don't jump when the live data appears. */
+  min-height: 110px;
   padding: var(--space-3) var(--space-4);
   background: var(--surface-1);
   border-top: 1px solid var(--border-subtle);
   --chart-surface: var(--surface-1);
 }
 
-/* Reserve each footer's full height before the first tick arrives, so the stages above
-   don't jump when the reading status (reader) or the three metric tiles (brain) appear. */
-.stage-panel--reader .stage-footer {
-  min-height: 78px;
+/* The last tick before a dropped connection stays visible, dimmed as out of date. The
+   playback card stays at full strength: its changes are replayed on reconnect. */
+.stage-footer > *,
+.hud-panel > :not(.playback) {
+  transition: opacity var(--transition-fast);
 }
 
-.stage-panel--brain .stage-footer {
-  min-height: 98px;
+.app--stale .stage-footer > *,
+.app--stale .hud-panel > :not(.playback) {
+  opacity: 0.45;
 }
 
 .bored-notice {

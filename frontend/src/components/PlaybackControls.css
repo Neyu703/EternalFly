@@ -3,6 +3,18 @@
   height: 34px;
 }
 
+/* The keyboard shortcut, shown right in the button so it's discoverable. */
+.playback-toggle-shortcut {
+  margin-left: auto;
+  padding: 0 var(--space-1);
+  border: 1px solid var(--accent-border);
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: var(--font-size-xs);
+  line-height: 16px;
+  opacity: 0.8;
+}
+
 .playback-field {
   display: grid;
   grid-template-columns: 72px minmax(0, 1fr);

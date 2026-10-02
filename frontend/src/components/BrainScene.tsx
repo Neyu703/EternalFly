@@ -6,7 +6,7 @@ import type { BrainRegion } from "./brain/brainGeometry";
 import { describeRegion, regionActivityLevel } from "./brain/brainRegionInfo";
 import { formatFiringRate } from "../utils/format";
 import { PREFERS_REDUCED_MOTION } from "../utils/motion";
-import { useEscapeKey } from "../hooks/useEscapeKey";
+import { useKeyDown } from "../hooks/useKeyDown";
 import { CloseIcon } from "./icons";
 import "./BrainScene.css";
 
@@ -40,7 +40,7 @@ export function BrainScene({ activity, isPaused }: { activity?: NeuropilActivity
   const idleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pointerDownRef = useRef({ x: 0, y: 0 });
 
-  useEscapeKey(selectedCode !== null, () => setSelectedCode(null));
+  useKeyDown("Escape", selectedCode !== null, () => setSelectedCode(null));
 
   useEffect(() => () => clearTimeout(idleTimeoutRef.current ?? undefined), []);
 

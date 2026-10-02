@@ -10,6 +10,7 @@ import { Swatch } from "./components/Swatch";
 import { BookOverviewPanel } from "./components/BookOverviewPanel";
 import { useWebSocketTickData } from "./hooks/useWebSocketTickData";
 import { useBookHistory } from "./hooks/useBookHistory";
+import { useKeyDown } from "./hooks/useKeyDown";
 import { BACKEND_HOST, BACKEND_WS_URL } from "./backendUrl";
 import { arousalOf } from "./utils/emotions";
 import "./App.css";
@@ -19,6 +20,15 @@ import "./App.css";
 function connectionStatusOf(isConnected: boolean, isPaused: boolean, hasReceivedTick: boolean): ConnectionStatus {
   if (!isConnected) return hasReceivedTick ? "disconnected" : "connecting";
   return isPaused ? "paused" : "live";
+}
+
+/** Whether a key press belongs to a focused control rather than to the page: Space on a
+ * focused button already clicks it, and in a field or dialog it means something else. */
+function isFromControl(event: KeyboardEvent): boolean {
+  return (
+    event.target instanceof Element &&
+    event.target.closest("button, input, select, textarea, a, dialog, [contenteditable]") !== null
+  );
 }
 
 /** Dashboard layout: header on top, the two 3D stages (fly+book, brain) side by side, each
@@ -31,6 +41,8 @@ function App() {
   const { finishedBookHistory, dismissFinishedBookHistory } = useBookHistory(tick);
   // The 3D stages stop animating the reading and the firing while paused or offline.
   const isSimulationFrozen = isPaused || !isConnected;
+  // After a dropped connection the last tick stays on screen; it's dimmed as out of date.
+  const isShowingStaleTick = !isConnected && tick !== null;
 
   function togglePaused() {
     const nextIsPaused = !isPaused;
@@ -38,8 +50,15 @@ function App() {
     sendControlMessage({ type: "set_paused", paused: nextIsPaused });
   }
 
+  // Space toggles pause anywhere on the page, like in a media player.
+  useKeyDown(" ", tick !== null, (event) => {
+    if (event.repeat || isFromControl(event)) return;
+    event.preventDefault();
+    togglePaused();
+  });
+
   return (
-    <div className="app">
+    <div className={isShowingStaleTick ? "app app--stale" : "app"}>
       <AppHeader connectionStatus={connectionStatusOf(isConnected, isPaused, tick !== null)} />
 
       <main className="stage">
