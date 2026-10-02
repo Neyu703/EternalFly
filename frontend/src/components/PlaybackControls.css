@@ -22,6 +22,11 @@
   gap: var(--space-2);
 }
 
+/* Lines up under the field, past its label column. */
+.playback-field-error {
+  padding-left: calc(72px + var(--space-2));
+}
+
 .playback-field-label {
   font-size: var(--font-size-sm);
   color: var(--text-secondary);

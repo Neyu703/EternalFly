@@ -11,6 +11,11 @@ const DEFAULT_AUTOPLAY_MODE: AutoplayMode = "restart";
 // What each end-of-book mode is called, in the order the selector lists them.
 const AUTOPLAY_MODE_LABELS: Record<AutoplayMode, string> = { restart: "Start over", shuffle: "Random book", off: "Stop" };
 
+/** Whether value is a usable reading speed: a finite number of words above zero. */
+function isValidWordsPerMinute(value: number): boolean {
+  return Number.isFinite(value) && value > 0;
+}
+
 /** What PlaybackControls needs from the app: the lifted pause state and the control channel. */
 export type PlaybackControlsProps = {
   isPaused: boolean;
@@ -26,6 +31,9 @@ export type PlaybackControlsProps = {
 export function PlaybackControls({ isPaused, onTogglePaused, sendControlMessage }: PlaybackControlsProps) {
   const [wordsPerMinute, setWordsPerMinute] = useState(DEFAULT_WORDS_PER_MINUTE);
   const [isCustomWpm, setIsCustomWpm] = useState(false);
+  // The custom field's raw text, so it can be cleared or hold an invalid entry while typing.
+  const [customWpmText, setCustomWpmText] = useState(String(DEFAULT_WORDS_PER_MINUTE));
+  const isCustomWpmValid = isValidWordsPerMinute(Number(customWpmText));
   const [autoplayMode, setAutoplayMode] = useState<AutoplayMode>(DEFAULT_AUTOPLAY_MODE);
 
   useEffect(() => {
@@ -43,6 +51,7 @@ export function PlaybackControls({ isPaused, onTogglePaused, sendControlMessage 
 
   function handleWpmPresetChange(event: React.ChangeEvent<HTMLSelectElement>) {
     if (event.target.value === CUSTOM_WPM_OPTION) {
+      setCustomWpmText(String(wordsPerMinute));
       setIsCustomWpm(true);
       return;
     }
@@ -51,9 +60,9 @@ export function PlaybackControls({ isPaused, onTogglePaused, sendControlMessage 
   }
 
   function handleCustomWpmChange(event: React.ChangeEvent<HTMLInputElement>) {
+    setCustomWpmText(event.target.value);
     const nextWordsPerMinute = Number(event.target.value);
-    if (!Number.isFinite(nextWordsPerMinute) || nextWordsPerMinute <= 0) return;
-    sendWordsPerMinute(nextWordsPerMinute);
+    if (isValidWordsPerMinute(nextWordsPerMinute)) sendWordsPerMinute(nextWordsPerMinute);
   }
 
   function handleAutoplayModeChange(event: React.ChangeEvent<HTMLSelectElement>) {
@@ -100,10 +109,17 @@ export function PlaybackControls({ isPaused, onTogglePaused, sendControlMessage 
             className="input"
             min={1}
             step={1}
-            value={wordsPerMinute}
+            value={customWpmText}
             onChange={handleCustomWpmChange}
+            aria-invalid={!isCustomWpmValid}
+            aria-describedby={isCustomWpmValid ? undefined : "custom-wpm-error"}
           />
         </label>
+      )}
+      {isCustomWpm && !isCustomWpmValid && (
+        <p id="custom-wpm-error" className="error-text playback-field-error">
+          Enter a speed above 0.
+        </p>
       )}
 
       <label className="playback-field">

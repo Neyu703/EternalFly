@@ -5,8 +5,8 @@ import "./BookList.css";
 /** One book to offer: the file to load, its title and an optional second line. */
 export type BookChoice = { filePath: string; title: string; subtitle?: string };
 
-/** Books to load with one click each. While one loads, its second line says so; a failed
- * load replaces the list with the error. */
+/** Books to load with one click each. While one loads, its second line says so with a
+ * spinner and the others are disabled; a failed load replaces the list with the error. */
 export function BookPickList({ books }: { books: BookChoice[] }) {
     const [loadingPath, setLoadingPath] = useState<string | null>(null);
     const [errorMessage, setErrorMessage] = useState("");
@@ -24,12 +24,23 @@ export function BookPickList({ books }: { books: BookChoice[] }) {
         <ul className="book-list">
             {books.map((book) => {
                 const isLoading = loadingPath === book.filePath;
-                const meta = isLoading ? "Loading…" : book.subtitle;
                 return (
                     <li key={book.filePath}>
-                        <button className="book-list-item" disabled={isLoading} onClick={() => handlePick(book.filePath)}>
+                        <button
+                            className="book-list-item"
+                            disabled={loadingPath !== null}
+                            aria-busy={isLoading}
+                            onClick={() => handlePick(book.filePath)}
+                        >
                             <span className="book-list-title truncate">{book.title}</span>
-                            {meta && <span className="book-list-meta truncate">{meta}</span>}
+                            {isLoading ? (
+                                <span className="book-list-meta">
+                                    <span className="spinner" aria-hidden="true" />
+                                    Loading…
+                                </span>
+                            ) : (
+                                book.subtitle && <span className="book-list-meta truncate">{book.subtitle}</span>
+                            )}
                         </button>
                     </li>
                 );

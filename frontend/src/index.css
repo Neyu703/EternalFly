@@ -21,6 +21,7 @@
   --accent: #8ab4ff;
   --accent-soft: rgb(138 180 255 / 0.14);
   --accent-soft-hover: rgb(138 180 255 / 0.22);
+  --accent-soft-pressed: rgb(138 180 255 / 0.3);
   --accent-border: rgb(138 180 255 / 0.4);
 
   --status-good: #0ca30c;
@@ -167,7 +168,8 @@ select {
   cursor: pointer;
   transition:
     background var(--transition-fast),
-    border-color var(--transition-fast);
+    border-color var(--transition-fast),
+    transform var(--transition-fast);
 }
 
 .button:hover:not(:disabled) {
@@ -175,9 +177,21 @@ select {
   border-color: var(--border-strong);
 }
 
+.button:active:not(:disabled) {
+  background: var(--surface-2);
+  transform: scale(0.98);
+}
+
 .button:disabled {
   opacity: 0.55;
   cursor: default;
+}
+
+/* Loading: disabled against double submits, but at full strength with its spinner, so it
+   reads as working rather than unavailable. */
+.button[aria-busy="true"] {
+  opacity: 1;
+  cursor: progress;
 }
 
 .button--primary {
@@ -189,6 +203,10 @@ select {
 .button--primary:hover:not(:disabled) {
   background: var(--accent-soft-hover);
   border-color: var(--accent);
+}
+
+.button--primary:active:not(:disabled) {
+  background: var(--accent-soft-pressed);
 }
 
 .icon-button {
@@ -209,9 +227,18 @@ select {
     color var(--transition-fast);
 }
 
-.icon-button:hover {
+.icon-button:hover:not(:disabled) {
   background: var(--surface-3);
   color: var(--text-primary);
+}
+
+.icon-button:active:not(:disabled) {
+  background: var(--surface-4);
+}
+
+.icon-button:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 .select,
@@ -227,9 +254,26 @@ select {
   transition: border-color var(--transition-fast);
 }
 
-.select:hover,
-.input:hover {
+.select:hover:not(:disabled),
+.input:hover:not(:disabled) {
   border-color: var(--border-strong);
+}
+
+.select:focus-visible,
+.input:focus-visible {
+  border-color: var(--accent);
+}
+
+.select:disabled,
+.input:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* An invalid entry: red border and focus ring; its message sits next to the field. */
+.input[aria-invalid="true"] {
+  border-color: var(--text-error);
+  outline-color: var(--text-error);
 }
 
 /* The chevron's stroke mirrors --text-muted: a data URI can't read custom properties. */
@@ -254,6 +298,36 @@ select {
 .empty-text {
   font-size: var(--font-size-sm);
   color: var(--text-muted);
+}
+
+/* A list or panel still fetching its content: a small spinner and what's being loaded. */
+.loading-text {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+/* Text links: always underlined, so they never rely on color alone. */
+a {
+  border-radius: 2px;
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  transition:
+    color var(--transition-fast),
+    text-decoration-thickness var(--transition-fast);
+}
+
+a:hover {
+  color: var(--text-primary);
+  text-decoration-thickness: 2px;
+}
+
+a:active {
+  opacity: 0.7;
 }
 
 /* A unit trailing a big number, e.g. the "/10" of the dopamine rating. */

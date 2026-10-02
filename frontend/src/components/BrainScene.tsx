@@ -80,7 +80,7 @@ export function BrainScene({ activity, isPaused }: { activity?: NeuropilActivity
   return (
     <div
       ref={containerRef}
-      className="brain-scene"
+      className={hover ? "brain-scene brain-scene--region-hovered" : "brain-scene"}
       onPointerDown={(event) => (pointerDownRef.current = { x: event.clientX, y: event.clientY })}
       onPointerLeave={() => setHover(null)}
     >

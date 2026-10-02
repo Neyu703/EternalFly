@@ -4,6 +4,11 @@
     height: 100%;
 }
 
+/* A region under the pointer can be clicked for its details. */
+.brain-scene.brain-scene--region-hovered canvas {
+    cursor: pointer;
+}
+
 .region-tooltip {
     position: absolute;
     z-index: 3;

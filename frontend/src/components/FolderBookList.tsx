@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { BOOK_FILE_EXTENSIONS, listBooksInFolder, type FolderBook } from "../bookApi";
 import { BookPickList } from "./BookPickList";
+import { LoadingText } from "./LoadingText";
 
 const EMPTY_FOLDER_TEXT = `No ${BOOK_FILE_EXTENSIONS.map((extension) => `.${extension}`).join(" or ")} files in this folder.`;
 
@@ -8,7 +9,8 @@ const EMPTY_FOLDER_TEXT = `No ${BOOK_FILE_EXTENSIONS.map((extension) => `.${exte
  * inside it and lets them load one with one click. Give it a key per folder, so picking
  * another folder starts afresh instead of keeping the last folder's list or error. */
 export function FolderBookList({ folderPath }: { folderPath: string }) {
-  const [books, setBooks] = useState<FolderBook[]>([]);
+  // null until the folder's listing arrives.
+  const [books, setBooks] = useState<FolderBook[] | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
 
   useEffect(() => {
@@ -16,6 +18,7 @@ export function FolderBookList({ folderPath }: { folderPath: string }) {
   }, [folderPath]);
 
   if (errorMessage) return <p className="error-text">{errorMessage}</p>;
+  if (books === null) return <LoadingText>Looking for books…</LoadingText>;
   if (books.length === 0) return <p className="empty-text">{EMPTY_FOLDER_TEXT}</p>;
 
   return <BookPickList books={books.map((book) => ({ filePath: book.filePath, title: book.fileName }))} />;

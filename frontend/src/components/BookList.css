@@ -27,9 +27,26 @@
   background: var(--surface-3);
 }
 
+.book-list-item:active:not(:disabled) {
+  background: var(--surface-4);
+}
+
+/* Inset, so the scrolling list doesn't clip the focus ring. */
+.book-list-item:focus-visible {
+  outline-offset: -2px;
+}
+
+/* While one book loads, the others are unavailable... */
 .book-list-item:disabled {
-  cursor: progress;
+  cursor: default;
   opacity: 0.6;
+}
+
+/* ...and the loading one stays highlighted at full strength. */
+.book-list-item[aria-busy="true"] {
+  background: var(--surface-3);
+  cursor: progress;
+  opacity: 1;
 }
 
 .book-list-title {
@@ -37,6 +54,16 @@
 }
 
 .book-list-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
   font-size: var(--font-size-xs);
   color: var(--text-muted);
+}
+
+.book-list-meta .spinner {
+  width: 10px;
+  height: 10px;
+  border-width: 1.5px;
 }

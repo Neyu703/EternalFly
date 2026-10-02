@@ -62,7 +62,7 @@ export function LoadBookButton() {
 
   return (
     <div className="load-book">
-      <button className="button" onClick={handlePickFile} disabled={isLoading}>
+      <button className="button" onClick={handlePickFile} disabled={isLoading} aria-busy={isLoading}>
         {isLoading ? <span className="spinner spinner--small" aria-hidden="true" /> : <FileIcon />}
         {isLoading ? "Loading…" : "Load file"}
       </button>

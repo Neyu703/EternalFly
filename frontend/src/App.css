@@ -47,6 +47,15 @@
   min-height: 0;
 }
 
+/* Both 3D models orbit by dragging. */
+.stage-canvas canvas {
+  cursor: grab;
+}
+
+.stage-canvas canvas:active {
+  cursor: grabbing;
+}
+
 .stage-caption {
   position: absolute;
   top: var(--space-3);

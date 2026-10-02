@@ -1,12 +1,15 @@
 import { useEffect, useState } from "react";
 import { listCalibreBooks, type CalibreBook } from "../bookApi";
 import { BookPickList } from "./BookPickList";
+import { LoadingText } from "./LoadingText";
 
 /** Shown when the fly's engagement drops low enough to want a different book: fetches the
  * user's Calibre library (read-only) and lets them pick a replacement with one click.
- * Renders nothing when no library is configured or it has no loadable books. */
+ * Shows a loading line until the library arrives, then nothing when no library is
+ * configured or it has no loadable books. */
 export function CalibreBookList() {
-  const [books, setBooks] = useState<CalibreBook[]>([]);
+  // null until the library's listing arrives.
+  const [books, setBooks] = useState<CalibreBook[] | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
 
   useEffect(() => {
@@ -14,6 +17,7 @@ export function CalibreBookList() {
   }, []);
 
   if (errorMessage) return <p className="error-text">{errorMessage}</p>;
+  if (books === null) return <LoadingText>Opening your Calibre library…</LoadingText>;
   if (books.length === 0) return null;
 
   return (
