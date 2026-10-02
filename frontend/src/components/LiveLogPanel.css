@@ -2,9 +2,11 @@
   container-type: inline-size;
 }
 
+/* Size containment: the log fills whatever height the HUD has instead of growing it. */
 .live-log-scroll {
   flex: 1;
   min-height: 0;
+  contain: size;
   overflow-x: hidden;
   overflow-y: auto;
 }

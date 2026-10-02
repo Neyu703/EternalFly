@@ -123,10 +123,13 @@
   color: var(--text-secondary);
 }
 
-/* Tall enough for the playback card's four rows, and growing a little with the window
-   without taking height from the 3D stages. */
+/* Sized to the playback card, so small windows keep as much height as possible for the
+   3D stages: it only grows for the custom-speed row when that's shown, and on taller
+   windows with the window to give the live log more rows. A grid, so the cards stretch
+   to that height. */
 .hud {
-  height: clamp(220px, 24vh, 260px);
+  display: grid;
+  min-height: clamp(184px, 24vh, 260px);
   padding: var(--space-3);
   background: var(--surface-1);
   border-top: 1px solid var(--border-subtle);
