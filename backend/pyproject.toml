@@ -4,7 +4,7 @@ version = "0.1.66"
 description = "Live spiking simulation of the FlyWire fly connectome reading a book"
 requires-python = ">=3.13"
 dependencies = [
-    "torch==2.14.0+cu130",
+    "torch==2.15.0",
     "fastapi==0.141.1",
     "starlette==1.7.0",
     "uvicorn[standard]==0.53.0",
