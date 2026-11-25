@@ -7,7 +7,7 @@ dependencies = [
     "torch==2.14.0+cu130",
     "fastapi==0.141.1",
     "starlette==1.7.0",
-    "uvicorn[standard]==0.53.0",
+    "uvicorn[standard]==0.54.0",
     "websockets==17.1",
     "EbookLib==0.20",
     "beautifulsoup4==4.15.0",
