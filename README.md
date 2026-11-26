@@ -52,6 +52,6 @@ cd backend
 
 Every commit bumps `version` in `backend/pyproject.toml` (kept in lockstep with
 `frontend/package.json`) by one patch level; commit subjects are prefixed
-`[vX.Y.Z] type: subject`. Every push to `main` is tagged and released automatically
+`[vX.Y.Z] type: subject`. Every push to `develop` is tagged and released automatically
 (see `.github/workflows/auto-release.yml`) — GitHub's auto-generated release notes are
 the changelog.
