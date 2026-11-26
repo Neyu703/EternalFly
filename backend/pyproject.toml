@@ -11,7 +11,7 @@ dependencies = [
     "websockets==17.1",
     "EbookLib==0.20",
     "beautifulsoup4==4.15.0",
-    "pyarrow==25.0.1",
+    "pyarrow==26.0.1",
     "numpy==2.5.3",
     "scipy==1.18.1",
     "requests==2.34.2",
